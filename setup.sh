@@ -8,8 +8,8 @@ python${PYTHON_VERSION} -m venv venv
 
 source venv/bin/activate
 
-# # Install packages
-# pip install -r requirements.txt
+# Install packages
+pip install -r requirements.txt
 
 SITE_PACKAGES_DIR="venv/lib/python${PYTHON_VERSION}/site-packages"
 

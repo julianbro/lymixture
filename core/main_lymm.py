@@ -66,7 +66,7 @@ def log_prob_fn(theta: np.ndarray | list) -> float:
 # %%
 if __name__ == "__main__":
     """
-    Simple script that creates the environment for the LymphMixtureModel class.
+    Simple script that creates the environment for the LymphMixtureModel class. The definitions for each step are done in the specific step.
     This includes:
         1) Data Loading and enhancing
         2) Optional Prevalence Plots
@@ -84,8 +84,6 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    logger.debug("This is a debug message.")
-    logger.info("This is a info message.")
 
     PLOT_PATH = Path("figures/expl_oc_hp/")
     SAMPLE_PATH = Path("samples/expl_oc_hp/")
@@ -100,6 +98,14 @@ if __name__ == "__main__":
         ("lnl", "III"): ["IV"],
         ("lnl", "IV"): [],
     }
+
+    # Ignore the t-stages (TODO)
+    ignore_t = True
+
+    PLOT_N_PATIENTS = True
+    PLOT_OBSERVED_PREV = True
+
+    indep_plot_corner = False
 
     ############################
     # DATA HANDLING
@@ -162,8 +168,6 @@ if __name__ == "__main__":
     ############################
     # Plots & Create Dataframes
     ############################
-    PLOT_N_PATIENTS = True
-    PLOT_OBSERVED_PREV = True
 
     # Color mapping for locations
     color_map = {loc: usz_colors[i] for i, loc in enumerate(location_to_include)}
@@ -240,7 +244,7 @@ if __name__ == "__main__":
 
     # %%
     ############################
-    # Independent Prediction of location
+    # Independent Prediction of each location 
     ############################
 
     indep_nburnin = 250
@@ -312,12 +316,13 @@ if __name__ == "__main__":
 
     # %%
     ############################
-    # Create the models with subsite dataRun EM sampling for the icd codes
+    # Create the models and loads each model with patient data from a ICD code.
     ############################
     # if True:
 
     N_CLUSTERS = 2
     N_SUBSITES = len(icd_to_loc_model.keys())
+    # For further analysis we use this simplified graph.
     graph_debug = {
         ("tumor", "primary"): ["I", "II", "III"],
         ("lnl", "I"): [],
@@ -394,6 +399,12 @@ if __name__ == "__main__":
     LMM.plot_cluster_assignment_matrix(labels=list(icd_to_loc_model.keys()))
 
     # %% Make Predictions with the model. !!Still under construction!!
+
+    ############################
+    # Using Mixture Model Class to make predictions for single ICD code
+    ############################
+
+
     # if True:
 
     # The idea is to create a result dataframe with observed an predicted values for given 'patterns'
@@ -403,24 +414,20 @@ if __name__ == "__main__":
     logger.info(f"Single prevalence predictions for {icd}")
     lnls_debug = graph_debug["tumor", "primary"]
 
-    # create the patterns dataframe for all LNL's
+    # create the patterns dataframe for all LNL's, (total risk for the lnl's)
     states_all = create_states(lnls_debug)
 
     a, b = LMM.predict_with_model(model_c02, states_all, lnls_debug, "test")
 
-    # a, b = LMM.predict_with_model(model_c02, states_all, lnls_debug, "test")
-    # LMM.load_data([dataset[m] for m in icd_to_masks.values()])
-    # c = LMM.create_result_df(states_all, lnls_debug, save_name="test")
-
-    # print(c)
-
     # %% Check if indepenent comparison is working
 
-    # Create a rich df where we compare the results of independent sampling to the results of the mixture component sampling.
+    ############################
+    # Using Mixture Model Class to create a full obs/pred results dataframe, and compare it to the indepenently trained models for each location.
+    ############################
 
     for loc in location_to_include:
         logger.info(f"Creating result data for {loc}")
-        # Create the model and load the independet samples
+        # Create the loc model and load the independet samples
         model = create_models(1, graph_debug, ignore_t_stage=ignore_t)
         model.load_patient_data(
             dataset[loc_to_mask[loc]], mapping=lambda x: convert_t_stage[x], side="ipsi"
@@ -433,6 +440,8 @@ if __name__ == "__main__":
         output_dir = SAMPLE_PATH / sample_name
         if output_dir.with_suffix(".npy").exists():
             sampling_results = np.load(output_dir.with_suffix(".npy"))
+        else:
+            raise ValueError()
 
         c = LMM.create_result_df(
             states_all,
@@ -442,3 +451,10 @@ if __name__ == "__main__":
             independent_model_samples=sampling_results,
             save_name=f"test_{loc}",
         )
+
+
+    #%%
+    ############################
+    # Predictions for new, unseen ICD code
+    ############################
+    # TODO

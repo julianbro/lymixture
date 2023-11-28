@@ -94,6 +94,9 @@ def late_binomial(support: np.ndarray, p: float = 0.5) -> np.ndarray:
 def create_models(
     n, graph=None, include_late=True, ignore_t_stage=False, n_mixture_components=1
 ) -> list[lymph.models.Unilateral] | lymph.models.Unilateral:
+    """
+    Creates n Unilateral models, all with the same graph, and same time distributions. Sets the number of mixture components to each model.
+    """
     if graph is None:
         graph = {
             ("tumor", "primary"): ["I", "II", "III", "IV"],

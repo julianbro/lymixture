@@ -299,10 +299,12 @@ class LymphMixtureModel:
         """
         Fits the mixture model using the EM algorithm and MCMC sampling.
         """
+        # TODO clean up!!
         # Implementation of EM algorithm
         # - Expectation Step: Assign models to clusters or sample cluster parameters, depending on method
         # - Maximization Step: Estimate cluster parameters, or estimate cluster assignmnets
 
+        # If no data is provided, the loaded models should already include data.
         if (
             not any(len(lm.patient_data) > 0 for lm in self.lymph_models)
             and data is None
@@ -313,13 +315,14 @@ class LymphMixtureModel:
         if data is not None:
             self.load_data(data)
 
+        # Create the path
         em_path = self.samples_dir.joinpath("EMSamples")
-        # Make sure the path exists
         em_path.mkdir(parents=True, exist_ok=True)
 
+        # Skip the EM-Algorithm if there is already a cluster asignments (Only for debug)
         if self._cluster_assignments is not None:
             # Only for debug
-            self.logger.info(
+            self.logger.warning(
                 "Skipping EM Algortihm, since cluster assignment is already given"
             )
             cluster_assignments = self._cluster_assignments
@@ -423,7 +426,7 @@ class LymphMixtureModel:
         labels=None,
         for_t_stages=None,
     ):
-        """Creates a pd.Dataframe which holds result information.
+        """Creates a pd.Dataframe which holds the predictions and observations for the given labels.
         If no labels are given, then all loaded models are considered.
         If labels are given, only the matching models are considered.
         If independent_model is given, then the result df gets another column where the predictions are compared to the predictions of the independent model.

@@ -513,15 +513,6 @@ def find_mixture_components(
     return z_final, theta_final, history
 
 
-class EMParams(TypedDict):
-    nsteps_em: int
-    nburnin_em: int
-    m_imputations_func: callable
-    convergence_ths: float
-    minimize_method: List[str]
-    em_method: str
-
-
 def em_sampler(
     models: List[lymph.models.Unilateral],
     n_clusters: int,

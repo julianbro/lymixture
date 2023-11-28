@@ -391,6 +391,9 @@ def find_mixture_components(
         raise ValueError(
             "Number of initial theta values do not match with the expected number."
         )
+    
+    # Get the convergence ths from samplinf params.
+    convergence_ths = sampling_params.get("convergence_ths", convergence_ths)
 
     # First proposals for the expcetatoin and maximations steps.
     if method != "inverted":
@@ -480,7 +483,6 @@ def find_mixture_components(
         converged = False
         try:
             max_steps_for_convergence = 3
-            convergence_ths = 0.015
             last_thetas_array = np.array(history["thetas"][-max_steps_for_convergence:])
             reference_theta_line = (
                 last_thetas_array.sum(axis=0) / max_steps_for_convergence

@@ -365,6 +365,8 @@ if __name__ == "__main__":
         model_labels=list(icd_to_loc_model.keys()),
     )
 
+
+    # The current config, is really only for debugging. 
     em_config = {
         "max_steps": 10,
         "method": "Default",
@@ -376,6 +378,7 @@ if __name__ == "__main__":
                 "sampler": "SIMPLE",
             },
             "params_for_maximation": {"minimize_method": "SLSQP"},
+            "convergence_ths": 0.015
         },
     }
 
@@ -383,13 +386,13 @@ if __name__ == "__main__":
         "sampler": "PRO",
         "sampling_params": {
             "walkers_per_dim": 20,
-            "nsteps": 20,
-            "nburnin": 30,
+            "nsteps": 100,
+            "nburnin": 300,
         },
     }
 
     # Enable EM Sampling by uncommenting this line.
-    LMM.cluster_assignments = [0.35, 0.12, 0.19, 0.4, 0.21, 0.89, 0.81, 0.67]
+    # LMM.cluster_assignments = [0.35, 0.12, 0.19, 0.4, 0.21, 0.89, 0.81, 0.67]
     
     # Run the EM algorithm and sample from the found cluster assignmnet
     LMM.fit(em_config=em_config, mcmc_config=mcmc_config, do_plot_history=True)

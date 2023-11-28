@@ -4,7 +4,9 @@
 
 import itertools
 from pathlib import Path
+import matplotlib as mpl
 import pandas as pd
+import logging
 import numpy as np
 from itertools import chain
 import matplotlib.pyplot as plt
@@ -25,142 +27,27 @@ from util_2 import (
     usz_colors,
     create_models,
     create_prev_vectors,
+    fade_to_white,
+    convert_lnl_to_filename,
+    plot_prevalences_icd,
+    reverse_dict,
+    load_data,
+    enhance_data,
+    create_states,
 )
 
-# from model_functions import log_prob_fn, emcee_sampling_ext
-import logging
+# Set styling params
+mpl.rcParams.update(mpl.rcParamsDefault)
+# plt.style.use('./styles/mplstyle_rl.txt')
+
+# Get the current script's directory
+current_directory = os.path.dirname(os.path.abspath(__file__))
+# Calculate the parent directory's path
+parent_directory = os.path.abspath(os.path.join(current_directory, ".."))
+# Add the parent directory to the Python path
+sys.path.append(parent_directory)
 
 logger = logging.getLogger(__name__)
-
-
-# %%
-def fade_to_white(initial_color, n):
-    """
-    Create an array of n colors, fading from the initial color to white.
-    """
-    # Convert the initial color to an RGB array
-    initial_color_rgb = np.array(mcolors.to_rgb(initial_color))
-
-    # Create an array of n steps fading to white (RGB for white is [1, 1, 1])
-    fade_colors = [
-        initial_color_rgb + (np.array([1, 1, 1]) - initial_color_rgb) * i / (n - 1)
-        for i in range(n)
-    ]
-
-    return fade_colors
-
-
-def convert_lnl_to_filename(lnls):
-    if not lnls:
-        return "Empty_List"
-    if len(lnls) == 1:
-        return lnls[0]
-
-    return f"{lnls[0]}_to_{lnls[-1]}"
-
-
-def plot_prevalences_icd(
-    prev_icds, prev_loc, lnls_full, icds_codes, base_color, save_name
-):
-    x_labels = lnls_full
-    fade_colors = fade_to_white(base_color, len(prev_icds) + 2)[:-2]
-
-    w_data, sp = 0.85, 0.15
-    overlap = 0.2
-    w_icd = w_data / (2 * overlap + len(icds_codes) * (1 - 2 * overlap))
-    icd_spacing = (w_data - w_icd) / (len(icds_codes) - 1)
-    rel_pos_icds = [
-        i * icd_spacing + (-w_data / 2 + w_icd / 2) for i in range(len(icds_codes))
-    ]
-    pos = [1 + 1 * i for i in range(len(x_labels))]
-    # w_icd_fill = (w_data/len(icds_codes))
-    # w_icd =w_icd_fill*(1-overlap)
-
-    # rel_pos_icds = [w_icd_fill/2 + i*w_icd_fill - (w_data)/2 for i in range(len(oc_icds))]
-    pos_icds = [[p + rel_pos_icds[i] for p in pos] for i in range(len(icds_codes))]
-    # pos[1] += 0.075
-    # pos[2] -= 0.075
-
-    fig, ax = plt.subplots(1, 1, figsize=set_size(width="full"), tight_layout=True)
-    bar_kwargs = {"width": w_icd, "align": "center"}
-
-    for i, prev_icd in enumerate(prev_icds[::-1]):
-        j = len(prev_icds) - i - 1
-        print(icds_codes[j])
-        plt.bar(
-            pos_icds[j],
-            height=prev_icd,
-            color=fade_colors[j],
-            label=icds_codes[j],
-            **bar_kwargs,
-        )
-    plt.bar(pos, prev_loc, width=w_data, color=usz_red, hatch="////", alpha=0.0)
-    ax.set_xticks(pos)
-    ax.set_xticklabels(x_labels)
-    ax.set_xlabel("LNLs")
-
-    ax.set_yticks(np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1))
-    ax.set_yticklabels(
-        [f"{100*tick:.0f}%" for tick in np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1)]
-    )
-    ax.set_ylabel("ipsilateral involvement")
-    ax.grid(axis="y")
-    ax.legend()
-    fig.savefig(save_name)
-    plt.show()
-
-
-def reverse_dict(original_dict: dict) -> dict:
-    reverse_dict = {}
-    for k, v in original_dict.items():
-        if isinstance(v, list):
-            for vs in v:
-                reverse_dict[vs] = k
-        else:
-            reverse_dict[v] = k
-    return reverse_dict
-
-
-# script_dir = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append()
-
-
-def load_data(datasets_names):
-    dataset = pd.DataFrame({})
-    for ds in datasets_names:
-        dataset_new = pd.read_csv(
-            Path("../../data/datasets/enhanced/" + ds), header=[0, 1, 2]
-        )
-        dataset = pd.concat([dataset, dataset_new], ignore_index=True)
-    print(f"Succesfully loaded {len(dataset)} Patients")
-    return dataset
-
-
-def enhance_data(dataset: pd.DataFrame, convert_t_stage: dict = None):
-    """Enhance the loaded datasets. Essentially assigns t-stage and majorsubsite (icd codes) to the dataframe."""
-    if convert_t_stage is None:
-        convert_t_stage = {0: "early", 1: "early", 2: "early", 3: "late", 4: "late"}
-
-    convert_t_stage_fun = lambda t: convert_t_stage[t]
-    t_stages = list(dataset[("tumor", "1", "t_stage")].apply(convert_t_stage_fun))
-    dataset[("info", "tumor", "t_stage")] = t_stages
-
-    # Add the major subsites
-    subsites_list = list(dataset["tumor"]["1"]["subsite"])
-    major_subsites = [s[:3] for s in subsites_list]
-    dataset["tumor", "1", "majorsubsites"] = major_subsites
-
-    # For reference (or initial clustering), cluster the subsites based on the location
-    location_to_cluster = {
-        "oral cavity": 0,
-        "oropharynx": 1,
-        "hypopharynx": 2,
-        "larynx": 3,
-    }
-    dataset["tumor", "1", "clustering"] = dataset["tumor"]["1"]["location"].apply(
-        lambda x: location_to_cluster[x]
-    )
-    return dataset
 
 
 def log_prob_fn(theta: np.ndarray | list) -> float:
@@ -178,18 +65,33 @@ def log_prob_fn(theta: np.ndarray | list) -> float:
 
 # %%
 if __name__ == "__main__":
+    """
+    Simple script that creates the environment for the LymphMixtureModel class.
+    This includes:
+        1) Data Loading and enhancing
+        2) Optional Prevalence Plots
+        3) Independent Sampling for the given locations
+        4) Init and fit of the mixture components
+        5) Predictions using the mixture model
+    """
+    ############################
+    # GLOBAL DEFINITIONS &
+    ############################
+
     global N_SUBSITES, N_CLUSTERS, MODELS
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     logger.debug("This is a debug message.")
     logger.info("This is a info message.")
-    ############################
-    # GLOBAL DEFINITIONS
-    ############################
-    PLOT_PATH = Path("./figures/expl_oc_hp")
-    SAMPLE_PATH = Path("./samples/expl_oc_hp/")
+
+    PLOT_PATH = Path("figures/expl_oc_hp/")
+    SAMPLE_PATH = Path("samples/expl_oc_hp/")
+
+    PLOT_PATH.mkdir(parents=True, exist_ok=True)
+    SAMPLE_PATH.mkdir(parents=True, exist_ok=True)
 
     graph = {
         ("tumor", "primary"): ["I", "II", "III", "IV"],
@@ -209,33 +111,33 @@ if __name__ == "__main__":
         convert_t_stage = {0: "all", 1: "all", 2: "all", 3: "all", 4: "all"}
     else:
         convert_t_stage = {0: "early", 1: "early", 2: "early", 3: "late", 4: "late"}
+
     t_stages = list(set(convert_t_stage.values()))
+
     datasets_names = [
         "2022_CLB_multisite_enhanced.csv",
         "2022_CLB_oropharynx_enhanced.csv",
         "2022-ISB-multisite_enhanced.csv",
     ]
 
+    # Select which locations you want to analize
     location_to_include = ["oral cavity", "oropharynx"]
+    # Icd codes in locations which you want to exlude
     icds_to_neglect = ["C00", "C08"]
 
     dataset = load_data(datasets_names)
     dataset = enhance_data(dataset, convert_t_stage)
 
-    # Check which icds we want to include in the mixture model. If a threshold is given, icd codes with patients less than the threshold will be excluded for training.
-    # Check which subsites belong to OC and OP
+    # Create a mask for the patients for each locations
     loc_to_mask = {
         loc: dataset["tumor"]["1"]["location"] == loc for loc in location_to_include
     }
 
+    # Location to icd dict
     loc_to_icds_full = {
         loc: dataset[loc_to_mask[loc]]["tumor", "1", "majorsubsites"].unique()
         for loc in location_to_include
     }
-
-    for k, v in loc_to_icds_full.items():
-        print(f"Location {k}: {v}")
-        print(f"{[icd_to_desc[icd] for icd in v]}")
 
     # Filtering out unwanted ICDs
     loc_to_icds_model = {
@@ -243,8 +145,13 @@ if __name__ == "__main__":
         for k, v in loc_to_icds_full.items()
     }
 
+    for k, v in loc_to_icds_model.items():
+        logger.info(f"In tumor location {k}: {v}")
+        # print(f"{[icd_to_desc[icd] for icd in v]}")
+
     icd_to_loc_model = reverse_dict(loc_to_icds_model)
 
+    # For each icd, create a mask for the corresponding patients
     icd_to_masks = {}
     for icd in list(chain(*loc_to_icds_model.values())):
         icd_to_masks[icd] = dataset["tumor", "1", "majorsubsites"] == icd
@@ -255,8 +162,9 @@ if __name__ == "__main__":
     ############################
     # Plots & Create Dataframes
     ############################
-    PLOT_N_PATIENTS = False
-    PLOT_OBSERVED_PREV = False
+    PLOT_N_PATIENTS = True
+    PLOT_OBSERVED_PREV = True
+
     # Color mapping for locations
     color_map = {loc: usz_colors[i] for i, loc in enumerate(location_to_include)}
 
@@ -284,8 +192,9 @@ if __name__ == "__main__":
         ax.set_ylabel("ICD's")
         fig.legend(handles=[e for e in legend_elements])
         fig.savefig(PLOT_PATH / "n_patients_icd.png")
-        plt.show()
+        # plt.show()
 
+        logger.info(f"Created n_patients_icd figure in {PLOT_PATH}")
     if PLOT_OBSERVED_PREV:
         # Plot every location in a single plot if one location has more than one subsite.
         if any(len(loc_to_icds_model[loc]) > 1 for loc in location_to_include):
@@ -325,8 +234,9 @@ if __name__ == "__main__":
                     columns=[str(s) for s in lnls_full],
                 ).T
                 prev_loc_df.to_csv(
-                    f"./prevalences/prev_{loc}_{convert_lnl_to_filename(lnls_full)}.csv"
+                    PLOT_PATH / f"prev_{loc}_{convert_lnl_to_filename(lnls_full)}.csv"
                 )
+                logger.info(f"Created prevalence figures in {PLOT_PATH}")
 
     # %%
     ############################
@@ -361,7 +271,11 @@ if __name__ == "__main__":
         output_dir = SAMPLE_PATH / sample_name
         if output_dir.with_suffix(".npy").exists():
             sampling_results = np.load(output_dir.with_suffix(".npy"))
+            logger.warning(
+                f"Found samples in {output_dir}. Skipping independent model sampling. "
+            )
         else:
+            logger.info(f"Start independent sampling for {loc}..")
             sampling_results = sample_from_model(
                 model,
                 params_sampling,
@@ -393,13 +307,15 @@ if __name__ == "__main__":
             fig.suptitle(f"{loc}", fontsize=16)
             fig.tight_layout()
             fig.savefig(PLOT_PATH / f"corner_ind_{loc}.png")
-            plt.show()
+            # plt.show()
+            logger.info(f"Created corner plot for samples for {loc}")
 
     # %%
     ############################
-    # Run EM sampling for the icd codes
+    # Create the models with subsite dataRun EM sampling for the icd codes
     ############################
     # if True:
+
     N_CLUSTERS = 2
     N_SUBSITES = len(icd_to_loc_model.keys())
     graph_debug = {
@@ -409,11 +325,6 @@ if __name__ == "__main__":
         ("lnl", "III"): [],
     }
 
-    # For now, we create the models already here and pass it to the em_sampling.py file.
-    # Later the em_sampling.py shoudl contain a function em_sampler which has the following structure:
-    # Desired Structure:
-    # final_weights, final_model_params, history? = em_sampler(data, icds, N_CLUSTERS, **em_params, **final_sampling_params)
-
     models_MM = create_models(
         N_SUBSITES,
         graph_debug,
@@ -422,29 +333,11 @@ if __name__ == "__main__":
     )
     for i, (k, v) in enumerate(icd_to_masks.items()):
         models_MM[i].load_patient_data(dataset[v], mapping=lambda x: convert_t_stage[x])
-        print(f"Loaded patients for ICD {k} (total {v.sum()} patients)")
+        # logger.info(f"Loaded patients for ICD {k} (total {v.sum()} patients)")
     # %%
-    # if True:
-    #     %load_ext autoreload
-    #     %autoreload 2
-    #     import importlib
-    #     import em_sampling
-    #     importlib.reload(em_sampling)
-    #     from em_sampling import em_sampler
-
-    #     em_path = SAMPLE_PATH / Path("em_samples/script/")
-    #     save_name = f"2samples_hc_op_test2"
-    #     final_weights, final_model_params, history = em_sampler(
-    #         models_MM, N_CLUSTERS, em_path, save_name
-    #     )
-
-    #     # %%
-    #     from em_sampling import plot_history
-
-    #     plot_history(history, icd_to_loc_model.keys(), models_MM, n_clusters=N_CLUSTERS)
-
-    # %%
-    # Do Final Sampling based on the icd codes.
+    ############################
+    # Using Mixture Model Class to train the mixture model
+    ############################
     # if True:
 
     import importlib
@@ -462,8 +355,9 @@ if __name__ == "__main__":
     LMM = LymphMixtureModel(
         models_MM,
         n_clusters=N_CLUSTERS,
-        base_dir=SAMPLE_PATH.joinpath(Path("LMM_Test/")),
+        base_dir=Path("./"),
         name="LMM_Test",
+        model_labels=list(icd_to_loc_model.keys()),
     )
 
     em_config = {
@@ -484,45 +378,36 @@ if __name__ == "__main__":
         "sampler": "PRO",
         "sampling_params": {
             "walkers_per_dim": 20,
-            "nsteps": 200,
-            "nburnin": 300,
+            "nsteps": 20,
+            "nburnin": 30,
         },
     }
+
+    # Enable EM Sampling by uncommenting this line.
     LMM.cluster_assignments = [0.35, 0.12, 0.19, 0.4, 0.21, 0.89, 0.81, 0.67]
+    
     # Run the EM algorithm and sample from the found cluster assignmnet
     LMM.fit(em_config=em_config, mcmc_config=mcmc_config, do_plot_history=True)
-    # LMM.plot_cluster_parameters()
+
+    LMM.plot_cluster_parameters()
 
     LMM.plot_cluster_assignment_matrix(labels=list(icd_to_loc_model.keys()))
 
-    LMM.model_labels = list(icd_to_loc_model.keys())
-
-    # %%
+    # %% Make Predictions with the model. !!Still under construction!!
     # if True:
-    # Predictions!! under construction
+
+    # The idea is to create a result dataframe with observed an predicted values for given 'patterns'
     icd = "C02"
     # i know that c02 is at first position this is why i take the first model
     model_c02 = LMM.lymph_models[0]
-
-    print(f"Prevalence for {icd}")
-
+    logger.info(f"Single prevalence predictions for {icd}")
     lnls_debug = graph_debug["tumor", "primary"]
 
     # create the patterns dataframe for all LNL's
-    states_all_raw = [
-        list(combination)
-        for combination in itertools.product([0, 1], repeat=len(lnls_debug))
-    ]
-    # states_all = [
-    #     {lnls_debug[-(i + 1)]: p[i] for i in range(len(lnls_debug))}
-    #     for p in states_all_raw
-    # ]
-    states_all = [
-        {lnls_debug[i]: True if i == j else None for i in range(len(lnls_debug))}
-        for j in range(len(lnls_debug))
-    ]
+    states_all = create_states(lnls_debug)
 
-    # a, b = LMM.predict_with_model(model_c02, states_all, lnls_debug, "test")
+    a, b = LMM.predict_with_model(model_c02, states_all, lnls_debug, "test")
+
     # a, b = LMM.predict_with_model(model_c02, states_all, lnls_debug, "test")
     # LMM.load_data([dataset[m] for m in icd_to_masks.values()])
     # c = LMM.create_result_df(states_all, lnls_debug, save_name="test")
@@ -530,8 +415,11 @@ if __name__ == "__main__":
     # print(c)
 
     # %% Check if indepenent comparison is working
+
+    # Create a rich df where we compare the results of independent sampling to the results of the mixture component sampling.
+
     for loc in location_to_include:
-        logger.info(f"Result Dataframe for {loc}")
+        logger.info(f"Creating result data for {loc}")
         # Create the model and load the independet samples
         model = create_models(1, graph_debug, ignore_t_stage=ignore_t)
         model.load_patient_data(

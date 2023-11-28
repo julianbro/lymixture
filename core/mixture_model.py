@@ -81,7 +81,7 @@ def as_list(val):
 
 class LymphMixtureModel:
     """
-    Wrapper model implementing mixture components for lymph models.
+    Wrapper model which handles the mixture components (clusters) in the lymph models.
 
     Args:
         lymph_models (list): List of lymph models.
@@ -115,7 +115,7 @@ class LymphMixtureModel:
 
         self._model_labels = None
         if model_labels is not None:
-            self.model_labels(model_labels)
+            self.model_labels = model_labels
 
         # Check model consistency
         self._check_model_consistency()
@@ -123,13 +123,14 @@ class LymphMixtureModel:
         # Set up directories
         self.name = name if name else "LMM"
         self.base_dir = base_dir.joinpath(self.name)
-        self.samples_dir = base_dir.joinpath("samples/")
-        self.figures_dir = base_dir.joinpath("figures/")
-        self.results_dir = base_dir.joinpath("results/")
+        self.samples_dir = self.base_dir.joinpath("samples/")
+        self.figures_dir = self.base_dir.joinpath("figures/")
+        self.results_dir = self.base_dir.joinpath("results/")
         self._create_directories()
 
-        # Initialize logger
-        self._setup_logger()
+        self.logger.info(
+            f"Create LymphMixtureModel with {len(self.lymph_models)} models and {self.n_clusters} cluster components in {self.base_dir}"
+        )
 
     def _create_directories(self):
         """
@@ -197,9 +198,9 @@ class LymphMixtureModel:
             raise ValueError("All models must have the same number of parameters.")
 
         self.n_model_params = param_counts[0]
-        self.logger.info(
-            f"Number of parameters per cluster is set to {self.n_model_params}"
-        )
+        # self.logger.info(
+        #     f"Number of parameters per cluster is set to {self.n_model_params}"
+        # )
 
         diag_time_dists = [list(lm.diag_time_dists) for lm in self.lymph_models]
         dtd_first = diag_time_dists[0]
@@ -314,7 +315,7 @@ class LymphMixtureModel:
 
         em_path = self.samples_dir.joinpath("EMSamples")
         # Make sure the path exists
-        em_path.parent.mkdir(parents=True, exist_ok=True)
+        em_path.mkdir(parents=True, exist_ok=True)
 
         if self._cluster_assignments is not None:
             # Only for debug
@@ -334,7 +335,13 @@ class LymphMixtureModel:
             )
 
             if do_plot_history:
-                plot_history(history)
+                plot_history(
+                    history,
+                    labels_w=self.model_labels,
+                    models=self.lymph_models,
+                    n_clusters=self.n_clusters,
+                    save_dir=self.figures_dir,
+                )
 
         self.lymph_models = assign_mixing_parameters(
             cluster_assignments, self.lymph_models, self.n_clusters
@@ -502,6 +509,7 @@ class LymphMixtureModel:
         df = pd.DataFrame(data_df, index=multiindex)
         df = df.round(2)
         df.to_csv(self.results_dir.joinpath(Path(f"results_df_{save_name}.csv")))
+        self.logger.info(f"Succesfully created results dataframe in {self.results_dir}")
         return df
 
     def predict(self, cluster_assignmnet, for_states):

@@ -2,19 +2,18 @@ from math import factorial
 import pandas as pd
 import lymph
 import numpy as np
+import emcee
+import multiprocess as mp
+import os
 from lyscripts.predict.prevalences import (
     compute_observed_prevalence,
     compute_predicted_prevalence,
 )
-
-# from lyscripts.helpers import add_tstage_marg
+import matplotlib.colors as mcolors
 from pathlib import Path
-
 import itertools, sys
-
 import scipy as sp
 import matplotlib.pyplot as plt
-
 
 # Plotting styles
 usz_blue = "#005ea8"
@@ -27,7 +26,6 @@ usz_orange = "#f17900"
 usz_orange_border = "#F8AB5C"
 usz_gray = "#c5d5db"
 usz_gray_border = "#DFDFDF"
-# sn.set_theme()
 usz_colors = [usz_blue, usz_green, usz_red, usz_orange, usz_gray]
 edge_colors = [
     usz_blue_border,
@@ -40,7 +38,19 @@ edge_colors = [
 PLOT_PATH = Path("./figures/")
 
 
+# Define a function to set plot size based on desired width, unit, and ratio
 def set_size(width="single", unit="cm", ratio="golden"):
+    """
+    Set the size of the plot for Matplotlib.
+
+    Parameters:
+    - width (int or str): The width of the plot.
+    - unit (str): The unit of width ('cm', 'inch', etc.).
+    - ratio (float or str): The aspect ratio of the plot.
+
+    Returns:
+    - tuple: A tuple (width, height) specifying the plot size.
+    """
     if width == "single":
         width = 10
     elif width == "full":
@@ -179,11 +189,11 @@ def create_prev_vectors(
             fig.savefig(PLOT_PATH / f"prev_vectors_{title}_{str(lnls)}.svg")
         if ax is None:
             plt.show()
-    if len(states_all) > 4:
-        print(f"Prev Vector: {X_inv_list}")
-    else:
-        prev_formatted = "".join(f"{l}: {p}" for l, p in zip(states_all, X_inv_list))
-        print(f"Prev Vector: {prev_formatted}")
+    # if len(states_all) > 4:
+    #     print(f"Prev Vector: {X_inv_list}")
+    # else:
+    #     prev_formatted = "".join(f"{l}: {p}" for l, p in zip(states_all, X_inv_list))
+    #     print(f"Prev Vector: {prev_formatted}")
     return X_inv_list
 
 
@@ -219,11 +229,6 @@ def convert_params(params, n_clusters, n_subsites):
     ]
     params_mixing = [[*mp, 1 - np.sum(mp)] for mp in params_mixing]
     return params_model, params_mixing
-
-
-import emcee
-import multiprocess as mp
-import os
 
 
 def emcee_sampling(llh_function, n_params, sample_name, llh_args=None):
@@ -356,3 +361,161 @@ def emcee_sampling_ext(
         # plots["acor_times"].append(burnin_info["acor_times"][-1])
         # plots["accept_rates"].append(burnin_info["accept_rates"][-1])
     return samples, end_point, log_probs
+
+
+def fade_to_white(initial_color, n):
+    """
+    Create an array of n colors, fading from the initial color to white.
+    """
+    # Convert the initial color to an RGB array
+    initial_color_rgb = np.array(mcolors.to_rgb(initial_color))
+
+    # Create an array of n steps fading to white (RGB for white is [1, 1, 1])
+    fade_colors = [
+        initial_color_rgb + (np.array([1, 1, 1]) - initial_color_rgb) * i / (n - 1)
+        for i in range(n)
+    ]
+
+    return fade_colors
+
+
+def convert_lnl_to_filename(lnls):
+    if not lnls:
+        return "Empty_List"
+    if len(lnls) == 1:
+        return lnls[0]
+
+    return f"{lnls[0]}_to_{lnls[-1]}"
+
+
+def plot_prevalences_icd(
+    prev_icds, prev_loc, lnls_full, icds_codes, base_color, save_name
+):
+    x_labels = lnls_full
+    fade_colors = fade_to_white(base_color, len(prev_icds) + 2)[:-2]
+
+    w_data, sp = 0.85, 0.15
+    overlap = 0.2
+    w_icd = w_data / (2 * overlap + len(icds_codes) * (1 - 2 * overlap))
+    icd_spacing = (w_data - w_icd) / (len(icds_codes) - 1)
+    rel_pos_icds = [
+        i * icd_spacing + (-w_data / 2 + w_icd / 2) for i in range(len(icds_codes))
+    ]
+    pos = [1 + 1 * i for i in range(len(x_labels))]
+    # w_icd_fill = (w_data/len(icds_codes))
+    # w_icd =w_icd_fill*(1-overlap)
+
+    # rel_pos_icds = [w_icd_fill/2 + i*w_icd_fill - (w_data)/2 for i in range(len(oc_icds))]
+    pos_icds = [[p + rel_pos_icds[i] for p in pos] for i in range(len(icds_codes))]
+    # pos[1] += 0.075
+    # pos[2] -= 0.075
+
+    fig, ax = plt.subplots(1, 1, figsize=set_size(width="full"), tight_layout=True)
+    bar_kwargs = {"width": w_icd, "align": "center"}
+
+    for i, prev_icd in enumerate(prev_icds[::-1]):
+        j = len(prev_icds) - i - 1
+        plt.bar(
+            pos_icds[j],
+            height=prev_icd,
+            color=fade_colors[j],
+            label=icds_codes[j],
+            **bar_kwargs,
+        )
+    plt.bar(
+        pos,
+        prev_loc,
+        width=w_data,
+        color=usz_red,
+        hatch="////",
+        label="mean",
+        alpha=0.0,
+    )
+    ax.set_xticks(pos)
+    ax.set_xticklabels(x_labels)
+    ax.set_xlabel("LNLs")
+
+    ax.set_yticks(np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1))
+    ax.set_yticklabels(
+        [f"{100*tick:.0f}%" for tick in np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1)]
+    )
+    ax.set_ylabel("ipsilateral involvement")
+    ax.grid(axis="y")
+    ax.legend()
+    fig.savefig(save_name)
+    # plt.show()
+
+
+def reverse_dict(original_dict: dict) -> dict:
+    reverse_dict = {}
+    for k, v in original_dict.items():
+        if isinstance(v, list):
+            for vs in v:
+                reverse_dict[vs] = k
+        else:
+            reverse_dict[v] = k
+    return reverse_dict
+
+
+# script_dir = os.path.dirname(os.path.abspath(__file__))
+# sys.path.append()
+
+
+def load_data(datasets_names, logger=None):
+    dataset = pd.DataFrame({})
+    for ds in datasets_names:
+        dataset_new = pd.read_csv(
+            Path("data/datasets/enhanced/" + ds), header=[0, 1, 2]
+        )
+        dataset = pd.concat([dataset, dataset_new], ignore_index=True)
+    if logger:
+        logger.info(f"Succesfully loaded {len(dataset)} Patients")
+    else:
+        print(f"Succesfully loaded {len(dataset)} Patients")
+    return dataset
+
+
+def enhance_data(dataset: pd.DataFrame, convert_t_stage: dict = None):
+    """Enhance the loaded datasets. Essentially assigns t-stage and majorsubsite (icd codes) to the dataframe."""
+    if convert_t_stage is None:
+        convert_t_stage = {0: "early", 1: "early", 2: "early", 3: "late", 4: "late"}
+
+    convert_t_stage_fun = lambda t: convert_t_stage[t]
+    t_stages = list(dataset[("tumor", "1", "t_stage")].apply(convert_t_stage_fun))
+    dataset[("info", "tumor", "t_stage")] = t_stages
+
+    # Add the major subsites
+    subsites_list = list(dataset["tumor"]["1"]["subsite"])
+    major_subsites = [s[:3] for s in subsites_list]
+    dataset["tumor", "1", "majorsubsites"] = major_subsites
+
+    # For reference (or initial clustering), cluster the subsites based on the location
+    location_to_cluster = {
+        "oral cavity": 0,
+        "oropharynx": 1,
+        "hypopharynx": 2,
+        "larynx": 3,
+    }
+    dataset["tumor", "1", "clustering"] = dataset["tumor"]["1"]["location"].apply(
+        lambda x: location_to_cluster[x]
+    )
+    return dataset
+
+
+def create_states(lnls, total_lnls=True):
+    """Creates states (patterns) used for risk predictions. If total_lnls is set, then only total risk in lnls is considered."""
+    if total_lnls:
+        states_all = [
+            {lnls[i]: True if i == j else None for i in range(len(lnls))}
+            for j in range(len(lnls))
+        ]
+    else:
+        states_all_raw = [
+            list(combination)
+            for combination in itertools.product([0, 1], repeat=len(lnls))
+        ]
+        states_all = [
+            {lnls[-(i + 1)]: p[i] for i in range(len(lnls))} for p in states_all_raw
+        ]
+
+    return states_all

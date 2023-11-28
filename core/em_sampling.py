@@ -8,6 +8,7 @@ import multiprocess as mp
 import os
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
+from lyscripts.plot.utils import save_figure
 from util_2 import set_size
 from lyscripts.sample import sample_from_global_model_and_configs
 
@@ -22,7 +23,8 @@ def assign_global_params(models, n_clusters):
     N_CLUSTERS = n_clusters
 
 
-def plot_history(history, labels_w, models, n_clusters):
+def plot_history(history, labels_w, models, n_clusters, save_dir=None):
+    """TODO: Enhance"""
     weights_hist = history["z_samples"]
     model_params_hist = history["thetas"]
     llh_hist = history["log_probs"]
@@ -63,6 +65,14 @@ def plot_history(history, labels_w, models, n_clusters):
                 label=r"%s$^{%s}$" % (label_ts[i], j),
             )
             i_last = i
+    fig.tight_layout()
+    if save_dir is not None:
+        save_figure(
+            save_dir / f"history_em_{i}",
+            fig,
+            formats=["png", "svg"],
+            logger=logger,
+        )
 
 
 def emcee_simple_sampler(
@@ -80,7 +90,7 @@ def emcee_simple_sampler(
         MODELS = models
 
     logger.info(
-        f"Set up sampling for {len(MODELS)}x {type(MODELS)} model with {ndim} parameters"
+        f"Set up sampling for {len(MODELS)}x {type(MODELS[0])} model with {ndim} parameters"
     )
 
     nwalkers = sampling_params["walkers_per_dim"] * ndim
@@ -243,10 +253,10 @@ def perform_expectation(
         print("Simple Sampler")
         sample_chain, end_point, log_probs = emcee_simple_sampler(
             log_prob_fn,
-            n_sample_params,
-            sampling_params,
-            emcee_starting_point,
-            save_dir,
+            ndim=n_sample_params,
+            sampling_params=sampling_params,
+            starting_point=emcee_starting_point,
+            save_dir=save_dir,
         )
     else:
         print("Pro Sampler")

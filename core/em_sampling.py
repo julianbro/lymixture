@@ -23,31 +23,52 @@ def assign_global_params(models, n_clusters):
     N_CLUSTERS = n_clusters
 
 
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
+
+def set_size(width="full", fraction=1):
+    """Set figure dimensions to avoid scaling in LaTeX."""
+    # Width presets in inches
+    width_dict = {"full": 6.202, "half": 3.031}
+    width = width_dict.get(width, width)
+    # Figure width in inches
+    fig_width = width * fraction
+    # Golden ratio to set aesthetic figure height
+    fig_height = fig_width / 1.618
+    return (fig_width, fig_height)
+
+
 def plot_history(history, labels_w, models, n_clusters, save_dir=None):
-    """TODO: Enhance"""
     weights_hist = history["z_samples"]
     model_params_hist = history["thetas"]
     llh_hist = history["log_probs"]
     c_r = history["convergence_criteria_values"]
 
     fig, axs = plt.subplots(2, 2, figsize=set_size(width="full"))
-    # Inspect llh
+    plt.rcParams.update({"font.size": 8})  # Adjust font size
+
+    # Likelihood Plot
     axs[0][0].plot(range(len(llh_hist)), llh_hist, label="Likelihood")
     axs[0][0].set_xlabel("Steps")
-    axs[0][0].set_ylabel("log lh")
+    axs[0][0].set_ylabel("Log Likelihood")
+    axs[0][0].xaxis.set_major_locator(MaxNLocator(integer=True))
 
+    # Weights Plot
     ax = axs[0][1]
     for i, l in enumerate(labels_w):
         ax.plot(
-            range(len(weights_hist)),
-            [w[i] for w in weights_hist],
-            label=r"$\pi_{%s,0}$" % (l),
+            range(len(weights_hist)), [w[i] for w in weights_hist], label=f"π_{l},0"
         )
     ax.set_xlabel("Steps")
-    ax.set_ylabel("weights")
-    ax.legend()
+    ax.set_ylabel("Weights")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small")
 
-    # Inspect llh
+    # Model Parameters Plot
     ax = axs[1, 0]
     label_ts = [
         t.replace("primary", "T").replace("_spread", "")
@@ -55,23 +76,24 @@ def plot_history(history, labels_w, models, n_clusters, save_dir=None):
         if "primary" in t
     ]
     label_ts = [item for item in label_ts for _ in range(n_clusters)]
-    # label_names_1 = [r'$b_1^{1}$', r'$b_2^{1}$', r'$b_3^{1}$', r'$t_{21}^{1}$', r'$t_{23}^{1}$', r'$p_{late}^{1}$']
-    # label_names_2 = [r'$b_1^{2}$', r'$b_2^{2}$', r'$b_3^{2}$', r'$t_{21}^{2}$', r'$t_{23}^{2}$', r'$p_{late}^{2}$']
+
     for i in range(0, len(label_ts), n_clusters):
         for j in range(n_clusters):
             ax.plot(
                 range(len(model_params_hist)),
                 [w[i + j] for w in model_params_hist],
-                label=r"%s$^{%s}$" % (label_ts[i], j),
+                label=f"{label_ts[i]}^{j}",
             )
-            i_last = i
-    fig.tight_layout()
+    ax.set_xlabel("Steps")
+    ax.set_ylabel("Parameter Values")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small")
+
+    fig.tight_layout(pad=3.0)
+
     if save_dir is not None:
         save_figure(
-            save_dir / f"history_em_{i}",
-            fig,
-            formats=["png", "svg"],
-            logger=logger,
+            save_dir / f"history_em", fig, formats=["png", "svg"], logger=logger
         )
 
 
@@ -391,7 +413,7 @@ def find_mixture_components(
         raise ValueError(
             "Number of initial theta values do not match with the expected number."
         )
-    
+
     # Get the convergence ths from samplinf params.
     convergence_ths = sampling_params.get("convergence_ths", convergence_ths)
 

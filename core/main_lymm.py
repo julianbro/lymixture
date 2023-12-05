@@ -244,7 +244,7 @@ if __name__ == "__main__":
 
     # %%
     ############################
-    # Independent Prediction of each location 
+    # Independent Prediction of each location
     ############################
 
     indep_nburnin = 250
@@ -256,7 +256,7 @@ if __name__ == "__main__":
         "nburnin": 200,
     }
 
-    indep_plot_corner = False
+    indep_plot_corner = True
 
     # We need global variables, such that the likelihood functions work
     global MODEL
@@ -365,20 +365,19 @@ if __name__ == "__main__":
         model_labels=list(icd_to_loc_model.keys()),
     )
 
-
-    # The current config, is really only for debugging. 
+    # The current config, is really only for debugging.
     em_config = {
-        "max_steps": 10,
+        "max_steps": 15,
         "method": "Default",
         "sampling_params": {
             "params_for_expectation": {
                 "walkers_per_dim": 20,
-                "nsteps": 10,
-                "nburnin": 5,
+                "nsteps": 30,
+                "nburnin": 30,
                 "sampler": "SIMPLE",
             },
             "params_for_maximation": {"minimize_method": "SLSQP"},
-            "convergence_ths": 0.015
+            "convergence_ths": 0.010,
         },
     }
 
@@ -386,14 +385,14 @@ if __name__ == "__main__":
         "sampler": "PRO",
         "sampling_params": {
             "walkers_per_dim": 20,
-            "nsteps": 100,
+            "nsteps": 150,
             "nburnin": 300,
         },
     }
 
     # Enable EM Sampling by uncommenting this line.
     # LMM.cluster_assignments = [0.35, 0.12, 0.19, 0.4, 0.21, 0.89, 0.81, 0.67]
-    
+
     # Run the EM algorithm and sample from the found cluster assignmnet
     LMM.fit(em_config=em_config, mcmc_config=mcmc_config, do_plot_history=True)
 
@@ -406,7 +405,6 @@ if __name__ == "__main__":
     ############################
     # Using Mixture Model Class to make predictions for single ICD code
     ############################
-
 
     # if True:
 
@@ -455,8 +453,7 @@ if __name__ == "__main__":
             save_name=f"test_{loc}",
         )
 
-
-    #%%
+    # %%
     ############################
     # Predictions for new, unseen ICD code
     ############################

@@ -192,11 +192,11 @@ def create_prev_vectors(
             fig.savefig(PLOT_PATH / f"prev_vectors_{title}_{str(lnls)}.svg")
         if ax is None:
             plt.show()
-    # if len(states_all) > 4:
-    #     print(f"Prev Vector: {X_inv_list}")
-    # else:
-    #     prev_formatted = "".join(f"{l}: {p}" for l, p in zip(states_all, X_inv_list))
-    #     print(f"Prev Vector: {prev_formatted}")
+    if len(states_all) > 4:
+        print(f"Prev Vector: {X_inv_list}")
+    else:
+        prev_formatted = "".join(f"{l}: {p}" for l, p in zip(states_all, X_inv_list))
+        print(f"Prev Vector: {prev_formatted}")
     return X_inv_list
 
 
@@ -467,9 +467,14 @@ def reverse_dict(original_dict: dict) -> dict:
 def load_data(datasets_names, logger=None):
     dataset = pd.DataFrame({})
     for ds in datasets_names:
-        dataset_new = pd.read_csv(
-            Path("data/datasets/enhanced/" + ds), header=[0, 1, 2]
-        )
+        try:
+            dataset_new = pd.read_csv(
+                Path("data/datasets/enhanced/" + ds), header=[0, 1, 2]
+            )
+        except:
+            dataset_new = pd.read_csv(
+                Path("../data/datasets/enhanced/" + ds), header=[0, 1, 2]
+            )
         dataset = pd.concat([dataset, dataset_new], ignore_index=True)
     if logger:
         logger.info(f"Succesfully loaded {len(dataset)} Patients")
@@ -492,16 +497,16 @@ def enhance_data(dataset: pd.DataFrame, convert_t_stage: dict = None):
     major_subsites = [s[:3] for s in subsites_list]
     dataset["tumor", "1", "majorsubsites"] = major_subsites
 
-    # For reference (or initial clustering), cluster the subsites based on the location
-    location_to_cluster = {
-        "oral cavity": 0,
-        "oropharynx": 1,
-        "hypopharynx": 2,
-        "larynx": 3,
-    }
-    dataset["tumor", "1", "clustering"] = dataset["tumor"]["1"]["location"].apply(
-        lambda x: location_to_cluster[x]
-    )
+    # # For reference (or initial clustering), cluster the subsites based on the location
+    # location_to_cluster = {
+    #     "oral cavity": 0,
+    #     "oropharynx": 1,
+    #     "hypopharynx": 2,
+    #     "larynx": 3,
+    # }
+    # dataset["tumor", "1", "clustering"] = dataset["tumor"]["1"]["location"].apply(
+    #     lambda x: location_to_cluster[x]
+    # )
     return dataset
 
 

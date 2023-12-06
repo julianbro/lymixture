@@ -10,9 +10,9 @@ def plot_cluster_assignments(
 ):
     # Assuming assignment_matrix is a 2D array with shape (n_models, n_clusters)
     fig, ax = plt.subplots(1, figsize=set_size(width="full"))
-    sns.heatmap(assignment_matrix.T, annot=True, cmap="viridis", ax=ax)
-    ax.set_xlabel("Models")
-    ax.set_ylabel("Clusters")
+    sns.heatmap(assignment_matrix, annot=True, cmap="viridis", ax=ax)
+    ax.set_ylabel("Models")
+    ax.set_xlabel("Clusters")
 
     ax.set_yticklabels(labels)
 

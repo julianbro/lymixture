@@ -1,4 +1,3 @@
-from math import factorial
 import pandas as pd
 import lymph
 import numpy as np
@@ -11,6 +10,7 @@ from lyscripts.predict.prevalences import (
 )
 import matplotlib.colors as mcolors
 from pathlib import Path
+from scipy.special import factorial
 import itertools, sys
 import scipy as sp
 import matplotlib.pyplot as plt

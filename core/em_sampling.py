@@ -106,6 +106,7 @@ def emcee_simple_sampler(
     save_dir: Optional[Path] = None,
     llh_args: Optional[List] = None,
     models: Optional[List] = None,
+    show_progress=True,
 ):
     global MODELS
     if models is not None:
@@ -141,7 +142,7 @@ def emcee_simple_sampler(
         sampling_results = original_sampler_mp.run_mcmc(
             initial_state=starting_point,
             nsteps=nstep + burnin,
-            progress=True,
+            progress=show_progress,
         )
 
     ar = np.mean(original_sampler_mp.acceptance_fraction)
@@ -270,6 +271,7 @@ def perform_expectation(
         sampling_params = {"walkers_per_dim": 20, "nsteps": 150, "nburnin": 300}
 
     sampler = sampling_params.get("sampler", "SIMPLE")
+    show_progress = sampling_params.get("show_sampling_progress", True)
 
     if sampler == "SIMPLE":
         print("Simple Sampler")
@@ -279,6 +281,7 @@ def perform_expectation(
             sampling_params=sampling_params,
             starting_point=emcee_starting_point,
             save_dir=save_dir,
+            show_progress=show_progress,
         )
     else:
         print("Pro Sampler")
@@ -393,7 +396,7 @@ def find_mixture_components(
     max_steps=20,
     convergence_ths=0.015,
     minimize_method="SLSQP",
-    interactive_plotting=False,
+    # interactive_plotting=False,
 ):
     """This function implements the em-algorithm. TODO restructure it as class object!"""
 
@@ -413,9 +416,6 @@ def find_mixture_components(
         raise ValueError(
             "Number of initial theta values do not match with the expected number."
         )
-
-    # Get the convergence ths from samplinf params.
-    convergence_ths = sampling_params.get("convergence_ths", convergence_ths)
 
     # First proposals for the expcetatoin and maximations steps.
     if method != "inverted":
@@ -505,7 +505,9 @@ def find_mixture_components(
         converged = False
         try:
             max_steps_for_convergence = 3
-            last_thetas_array = np.array(history["thetas"][-max_steps_for_convergence:])
+            last_thetas_array = np.array(
+                history["z_samples"][-max_steps_for_convergence:]
+            )
             reference_theta_line = (
                 last_thetas_array.sum(axis=0) / max_steps_for_convergence
             )
@@ -575,6 +577,8 @@ def em_sampler(
     }
     sampling_params = em_params.get("sampling_params", PARAMS_DEFAULT)
 
+    convergence_ths = em_params.get("convergence_ths", 0.01)
+
     z_final, theta_final, history = find_mixture_components(
         initial_theta=None,
         initial_weights=None,
@@ -583,6 +587,7 @@ def em_sampler(
         max_steps=max_steps,
         base_dir=base_dir,
         sampling_params=sampling_params,
+        convergence_ths=convergence_ths,
     )
 
     return z_final, theta_final, history

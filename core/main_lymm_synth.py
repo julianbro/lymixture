@@ -38,7 +38,7 @@ from util_2 import (
 
 # Set styling params
 mpl.rcParams.update(mpl.rcParamsDefault)
-# plt.style.use('./styles/mplstyle_rl.txt')
+plt.style.use("./styles/mplstyle_rl.txt")
 
 # Get the current script's directory
 current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -85,7 +85,7 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    NAME = "ConcatD1D2D12"
+    NAME = "synth_s1_s2_n0"
     PLOT_PATH = Path(f"figures/{NAME}/")
     SAMPLE_PATH = Path(f"samples/{NAME}/")
 
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     graph = {
         ("tumor", "primary"): ["I", "II", "III"],
         ("lnl", "I"): [],
-        ("lnl", "II"): ["I", "III"],
+        ("lnl", "II"): [],
         ("lnl", "III"): [],
     }
 
@@ -120,10 +120,10 @@ if __name__ == "__main__":
 
     t_stages = list(set(convert_t_stage.values()))
 
-    datasets_names = ["df_D1D2D3.csv"]
+    datasets_names = [f"synth/{NAME}.csv"]
 
     # Select which locations you want to analize
-    location_to_include = ["D1", "D2", "D3"]
+    location_to_include = ["S1", "S2", "S3"]
     # Icd codes in locations which you want to exlude
     icds_to_neglect = []
 
@@ -241,21 +241,23 @@ if __name__ == "__main__":
         else:
             # just plot prev in one single plot
             # Check that the data is correct
-            fig, ax = plt.subplots(
-                1, 3, figsize=set_size(width="full"), tight_layout=True
+            fig, axs = plt.subplots(
+                1,
+                len(location_to_include),
+                figsize=set_size(width="full"),
+                tight_layout=True,
             )
             for i, loc in enumerate(location_to_include):
                 create_prev_vectors(
                     dataset[loc_to_mask[loc]],
                     lnls_full,
+                    t_stages=t_stages,
                     plot=True,
                     title=loc,
-                    ax=ax[i],
+                    ax=axs[i],
                 )
             plt.show()
-            fig.savefig(
-                PLOT_PATH / f"prev_{loc}_{convert_lnl_to_filename(lnls_full)}.png"
-            )
+            fig.savefig(PLOT_PATH / f"prev_{convert_lnl_to_filename(lnls_full)}.png")
             logger.info(f"Created prevalence figures in {PLOT_PATH}")
 
     # %%
@@ -373,7 +375,7 @@ if __name__ == "__main__":
     LMM = LymphMixtureModel(
         models_MM,
         n_clusters=N_CLUSTERS,
-        base_dir=Path("./"),
+        base_dir=Path("mm_models/"),
         name=NAME,
         model_labels=list(icd_to_loc_model.keys()),
     )
@@ -382,6 +384,7 @@ if __name__ == "__main__":
     em_config = {
         "max_steps": 10,
         "method": "Default",
+        "convergence_ths": 0.010,
         "sampling_params": {
             "params_for_expectation": {
                 "walkers_per_dim": 20,
@@ -390,7 +393,6 @@ if __name__ == "__main__":
                 "sampler": "SIMPLE",
             },
             "params_for_maximation": {"minimize_method": "SLSQP"},
-            "convergence_ths": 0.010,
         },
     }
 
@@ -404,6 +406,7 @@ if __name__ == "__main__":
     }
 
     # Enable EM Sampling by uncommenting this line.
+
     # LMM.cluster_assignments = [0.35, 0.12, 0.19, 0.4, 0.21, 0.89, 0.81, 0.67]
 
     # Run the EM algorithm and sample from the found cluster assignmnet

@@ -30,11 +30,13 @@ def plot_cluster_parameters(
     cluster_parameters, n_clusters, labels, figures_dir, logger
 ):
     """
-    Creates corner plots for cluster parameters.
+    Creates individual corner plots for each cluster using the cluster parameters.
 
     """
+    # Separate the parameters for each cluster
     cluster_params_grouped = [
-        cluster_parameters[:, i::n_clusters] for i in range(n_clusters)
+        cluster_parameters[:, i * len(labels) : (i + 1) * len(labels)]
+        for i in range(n_clusters)
     ]
 
     for i, chain in enumerate(cluster_params_grouped):

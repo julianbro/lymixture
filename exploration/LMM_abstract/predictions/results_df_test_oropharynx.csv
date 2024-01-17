@@ -1,0 +1,33 @@
+T-Stage,ICD,Types,"{'I': None, 'II': None, 'III': None, 'IV': True}","{'I': None, 'II': None, 'III': True, 'IV': None}","{'I': None, 'II': True, 'III': None, 'IV': None}","{'I': True, 'II': None, 'III': None, 'IV': None}"
+early,C01,Observed,0.06,0.3,0.85,0.03
+early,C01,Predicted,0.11,0.32,0.77,0.09
+early,C01,Difference (MM),0.05,0.02,-0.09,0.06
+early,C01,Difference (Indp),0.02,-0.01,-0.16,0.04
+early,C09,Observed,0.09,0.26,0.71,0.04
+early,C09,Predicted,0.1,0.31,0.74,0.1
+early,C09,Difference (MM),0.01,0.05,0.02,0.06
+early,C09,Difference (Indp),-0.01,0.03,-0.02,0.04
+early,C10,Observed,0.03,0.31,0.49,0.07
+early,C10,Predicted,0.09,0.26,0.61,0.12
+early,C10,Difference (MM),0.06,-0.05,0.12,0.05
+early,C10,Difference (Indp),0.05,-0.02,0.21,0.01
+early,Ind,Observed,0.07,0.28,0.71,0.04
+early,Ind,Predicted,0.08,0.29,0.7,0.08
+early,Ind,Difference (MM),0.01,0.01,-0.01,0.04
+early,Ind,Difference (Indp),0.01,0.01,-0.01,0.04
+late,C01,Observed,0.13,0.35,0.86,0.14
+late,C01,Predicted,0.12,0.35,0.8,0.1
+late,C01,Difference (MM),-0.01,0.0,-0.06,-0.04
+late,C01,Difference (Indp),-0.01,0.02,-0.07,-0.04
+late,C09,Observed,0.15,0.39,0.75,0.17
+late,C09,Predicted,0.12,0.34,0.77,0.11
+late,C09,Difference (MM),-0.03,-0.05,0.02,-0.07
+late,C09,Difference (Indp),-0.03,-0.02,0.04,-0.08
+late,C10,Observed,0.07,0.39,0.69,0.12
+late,C10,Predicted,0.1,0.3,0.65,0.14
+late,C10,Difference (MM),0.04,-0.09,-0.04,0.02
+late,C10,Difference (Indp),0.05,-0.02,0.1,-0.02
+late,Ind,Observed,0.12,0.38,0.77,0.15
+late,Ind,Predicted,0.12,0.37,0.79,0.1
+late,Ind,Difference (MM),-0.0,-0.01,0.02,-0.05
+late,Ind,Difference (Indp),-0.0,-0.01,0.02,-0.05

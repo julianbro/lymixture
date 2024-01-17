@@ -1,18 +1,100 @@
 import random
+from typing import Dict, Generator, List, Optional
 import lymph
 from lyscripts.predict.prevalences import (
+    create_patient_row,
     compute_observed_prevalence,
     compute_predicted_prevalence,
     generate_predicted_prevalences,
+    compute_predicted_prevalence_for_mixture,
 )
+from lyscripts.predict.risks import predicted_risk
 
 import pandas as pd
 import numpy as np
+
+## Prevalences
+
+
+def mm_generate_predicted_prevalences(
+    cluster_assignments: np.ndarray,
+    cluster_parameters: np.ndarray,
+    pattern: Dict[str, Dict[str, bool]],
+    model: lymph.models.Unilateral,
+    t_stage: str = "early",
+    modality_spsn: Optional[List[float]] = None,
+    invert: bool = False,
+    **_kwargs,
+) -> Generator[float, None, None]:
+    """Wrapper for the `lyscript predict` function."""
+
+    # The number of clusters are extracted from the length of cluster assignments given:
+    n_clusters = len(cluster_assignments)
+    n_p = len(model.get_params())
+
+    cluster_predictions = np.zeros(shape=(n_clusters))
+    for k in range(n_clusters):
+        k_cluster_parameters = cluster_parameters[:, k * n_p : (k + 1) * n_p]
+        cluster_predictions[k] = next(
+            generate_predicted_prevalences(
+                pattern,
+                model,
+                k_cluster_parameters,
+                t_stage=t_stage,
+                modality_spsn=modality_spsn,
+                invert=invert,
+                **_kwargs,
+            )
+        )
+    return cluster_assignments @ cluster_predictions
+
+
+## Risks
+
+
+def mm_predicted_risk(
+    involvement: Dict[str, Dict[str, bool]],
+    model: lymph.models.Unilateral,
+    cluster_assignment: np.ndarray,
+    cluster_parameters: np.ndarray,
+    t_stage: str,
+    midline_ext: bool = False,
+    given_diagnosis: Optional[Dict[str, Dict[str, bool]]] = None,
+    given_diagnosis_spsn: Optional[List[float]] = None,
+    invert: bool = False,
+    **_kwargs,
+) -> Generator[float, None, None]:
+    """Wrapper for the `lyscript predicted_risk` function."""
+
+    if midline_ext is not False:
+        raise NotImplementedError
+    # The number of clusters are extracted from the length of cluster assignments given:
+    n_clusters = len(cluster_assignment)
+    n_p = len(model.get_params())
+
+    cluster_risks = np.zeros(shape=(n_clusters))
+    for k in range(n_clusters):
+        k_cluster_parameters = cluster_parameters[:, k * n_p : (k + 1) * n_p]
+        cluster_risks[k] = next(
+            predicted_risk(
+                involvement,
+                model,
+                k_cluster_parameters,
+                t_stage,
+                midline_ext,
+                given_diagnosis,
+                given_diagnosis_spsn,
+                invert,
+                **_kwargs,
+            )
+        )
+    return cluster_assignment @ cluster_risks
 
 
 def _create_obs_pred_df_single(
     samples, model, data, patterns, lnls, save_name=None, n_samples=100
 ):
+    """Messy function which creates a dataframe comparing observed / predictions. Also returns object which can be used for histogram plots."""
     random_idx = random.sample(range(samples.shape[0]), n_samples)
     samples_to_use = [samples[i, :] for i in random_idx]
     obs_prev = {}
@@ -86,23 +168,100 @@ def _create_obs_pred_df_single(
             + df["late", "pred"] * df["late", "t"]
         ) / (df["early", "t"] + df["late", "t"])
         # df['tot', "n/t"] = (df["early", "n"] + df["late", "n"], df["early", "t"]+df["late", "t"])
-
+        pred_prev_list["all"] = {
+            k: (
+                random.sample(
+                    pred_prev_list["early"][k][0] + pred_prev_list["late"][k][0],
+                    len(pred_prev_list["early"][k][0]),
+                ),
+                (
+                    pred_prev_list["early"][k][1][0] + pred_prev_list["late"][k][1][0],
+                    pred_prev_list["early"][k][1][1] + pred_prev_list["late"][k][1][1],
+                ),
+            )
+            for k in pred_prev_list["early"].keys()
+        }
     if save_name is not None:
         df.to_csv(save_name)
     return df, [obs_prev, pred_prev, pred_prev_std, pred_prev_list]
 
 
-def create_obs_pred_df_single(
-    samples,
+def generate_predicted_prevalences_for_mixture(
+    pattern: Dict[str, Dict[str, bool]],
     model: lymph.models.Unilateral,
+    n_clusters: int,
+    cluster_assignment: np.ndarray,
+    samples: np.ndarray,
+    t_stage: str = "early",
+    modality_spsn: Optional[List[float]] = None,
+    invert: bool = False,
+    **_kwargs,
+) -> Generator[float, None, None]:
+    """Compute the prevalence of a given `pattern` of lymphatic progression using a
+    `model` and trained `samples`.
+
+    Do this computation for the specified `t_stage` and whether or not the tumor has
+    a `midline_ext`. `modality_spsn` defines the values for specificity & sensitivity
+    of the diagnostic modality for which the prevalence is to be computed. Default is
+    a value of 1 for both.
+
+    Use `invert` to compute 1 - p.
+    """
+    from core.mixture_model import LymphMixtureModel
+    from lyscripts.utils import get_lnls
+    from lyscripts.predict.utils import complete_pattern
+
+    lnls = get_lnls(model)
+    pattern = complete_pattern(pattern, lnls)
+
+    if modality_spsn is None:
+        model.modalities = {"max_llh": [1.0, 1.0]}
+    else:
+        model.modalities = {"max_llh": modality_spsn}
+
+    is_unilateral = isinstance(model, lymph.models.Unilateral)
+    if not is_unilateral:
+        raise NotImplementedError()
+    patient_row = create_patient_row(
+        pattern,
+        t_stage,
+        False,
+        make_unilateral=is_unilateral,
+        default_index=False,
+    )
+    if t_stage in ["early", "late"]:
+        mapping = None
+    else:
+        mapping = lambda x: "all"
+
+    # Create an instance of the mixture model
+    lmm = LymphMixtureModel(model, n_clusters=n_clusters, n_subpopulation=1)
+    # assign the cluster assignment to the model.
+    lmm.cluster_assignments = cluster_assignment[:-1]
+    # load the patient row data
+    lmm.load_data([patient_row], mapping=mapping)
+
+    # compute prevalence as likelihood of diagnose `prev`, which was defined above
+    for sample in samples:
+        prevalence = compute_predicted_prevalence_for_mixture(
+            loaded_mixture_model=lmm,
+            given_params=sample,
+        )
+        yield (1.0 - prevalence) if invert else prevalence
+
+
+def create_obs_pred_df_single(
+    samples_for_predictions: np.ndarray,
+    model: lymph.models.Unilateral,
+    n_clusters,
+    cluster_assignment,
     data_input,
     patterns,
     lnls,
     save_name=None,
-    n_samples=100,
 ):
     """
-    Creates a DataFrame comparing observed and predicted prevalences.
+    Uses lyscripts methods to create a DataFrame comparing observed and predicted prevalences.
 
     Args:
         samples: MCMC samples for the model.
@@ -116,9 +275,6 @@ def create_obs_pred_df_single(
     Returns:
         A DataFrame with observed and predicted prevalences, and additional statistics.
     """
-    random_idx = random.sample(range(samples.shape[0]), n_samples)
-    samples_to_use = samples[random_idx, :]
-
     # We need to create a copy since else it could lead to problems
     data = data_input.copy(deep=True)
 
@@ -132,10 +288,12 @@ def create_obs_pred_df_single(
                 pattern={"ipsi": pattern}, data=data, t_stage=t_stage, lnls=lnls
             )
             pp_list = list(
-                generate_predicted_prevalences(
+                generate_predicted_prevalences_for_mixture(
                     pattern={"ipsi": pattern},
                     model=model,
-                    samples=samples_to_use,
+                    n_clusters=n_clusters,
+                    cluster_assignment=cluster_assignment,
+                    samples=samples_for_predictions,
                     t_stage=t_stage,
                 )
             )

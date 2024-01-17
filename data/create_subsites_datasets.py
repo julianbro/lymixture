@@ -11,7 +11,8 @@ import sys
 import numpy as np
 import scipy as sp
 import pandas as pd
-from core.util_2 import set_size
+
+# from ..core.util_2 import set_size
 
 import lymph
 from lyscripts.predict.prevalences import compute_observed_prevalence
@@ -105,7 +106,7 @@ def create_prev_vectors(data, lnls, plot=False, title=None, save_figure=False, a
 
     if plot:
         if ax is None:
-            fig, ax = plt.subplots(1, figsize=set_size("full"))
+            fig, ax = plt.subplots(1)
 
         ax.barh(range(len(X_inv_list)), width=X_inv_list)
         maxx = max(X_inv_list)
@@ -148,7 +149,7 @@ def generate_patients_df(
 import pandas as pd
 
 
-def create_dataset(
+def create_synth_data_by_config(
     graph: dict,
     n: List[int],
     params: List[float],
@@ -158,7 +159,7 @@ def create_dataset(
     save_dataset: bool = True,
     plot: bool = True,
 ):
-    """Creates a synth dataset with the given parameters. Make sure to pass everything as a list"""
+    """Creates a synth dataset with the given config."""
     lnls = graph.get(("tumor", "primary"), [])
 
     data_list = []
@@ -179,6 +180,50 @@ def create_dataset(
     output_path = f"/datasets/enhanced/synth/{name}.csv"
     if save_dataset:
         data_stacked.to_csv(file_dir + output_path)
+        print(f"Saved data in: {file_dir + output_path}")
+    return data_stacked
+
+
+def create_synth_data_by_config(
+    graph: dict,
+    n: List[int],
+    params: List[float],
+    locations: List[str],
+    t_dist: dict,
+    name: str,
+    save_dataset: bool = True,
+    plot: bool = True,
+):
+    """Creates a synth dataset with the given config."""
+    lnls = graph.get(("tumor", "primary"), [])
+
+    data_list = []
+    for i, loc in enumerate(locations):
+        loc_data = generate_patients_df(
+            params[i], None, n[i], 1, graph, t_dist, header="nd"
+        )
+        loc_data[("tumor", "1", "location")] = [loc] * len(loc_data)
+        loc_data[("tumor", "1", "subsite")] = [loc] * len(loc_data)
+        data_list.append(loc_data)
+
+        if plot:
+            create_prev_vectors(loc_data, lnls=lnls, plot=True)
+
+    dfrac1 = data_list[0].sample(frac=0.4)
+    dfrac2 = data_list[1].sample(frac=0.6)
+    dfrac1[("tumor", "1", "location")] = ["S12"] * len(dfrac1)
+    dfrac1[("tumor", "1", "subsite")] = ["S12"] * len(dfrac1)
+    dfrac2[("tumor", "1", "location")] = ["S12"] * len(dfrac2)
+    dfrac2[("tumor", "1", "subsite")] = ["S12"] * len(dfrac2)
+    data_list.append(dfrac1)
+    data_list.append(dfrac2)
+    data_stacked = pd.concat([d for d in data_list])
+
+    file_dir = os.path.dirname(__file__)
+    output_path = f"/datasets/enhanced/synth/{name}.csv"
+    if save_dataset:
+        data_stacked.to_csv(file_dir + output_path)
+        print(f"Saved data in: {file_dir + output_path}")
     return data_stacked
 
 
@@ -195,24 +240,22 @@ def main():
     else:
         # Define the parameters directly in the script if not using a YAML file
         config = {
-            "name": "synth_s1_s2_n0",
-            "n": [200, 200, 200],
-            "params": [
-                [0.3, 0.0, 0.3, 0.0, 0.0],
-                [0.0, 0.6, 0.6, 0.0, 0.0],
-                [0.01, 0.01, 0.01, 0.01, 0.01],
-            ],
-            "locations": ["S1", "S2", "S3"],
-            "t_dist": {"early": 1, "late": 0},
-            "graph_lnl_I_II": {
-                ("tumor", "primary"): ["I", "II", "III"],
+            "name": "synth_s1_s2_s12",
+            "n": [500, 500],
+            "graph": {
+                ("tumor", "primary"): ["I", "II"],
                 ("lnl", "I"): [],
-                ("lnl", "II"): ["I", "III"],
-                ("lnl", "III"): [],
+                ("lnl", "II"): [],
             },
+            "params": [
+                [0.4, 0.0],
+                [0.00, 0.6],
+            ],
+            "locations": ["S1", "S2"],
+            "t_dist": {"early": 1, "late": 0},
         }
 
-    create_dataset(**config)
+    create_synth_data_by_config(**config, save_dataset=True)
 
 
 if __name__ == "__main__":

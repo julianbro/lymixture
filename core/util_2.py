@@ -1,3 +1,4 @@
+from cycler import cycler
 import pandas as pd
 import lymph
 import numpy as np
@@ -34,6 +35,13 @@ edge_colors = [
     usz_orange_border,
     usz_gray_border,
 ]
+COLORS = {
+    "blue": "#005ea8",
+    "orange": "#f17900",
+    "green": "#00afa5",
+    "red": "#ae0060",
+    "gray": "#c5d5db",
+}
 
 PLOT_PATH = Path("./figures/")
 
@@ -95,7 +103,7 @@ def create_models(
     n, graph=None, include_late=True, ignore_t_stage=False, n_mixture_components=1
 ) -> list[lymph.models.Unilateral] | lymph.models.Unilateral:
     """
-    Creates n Unilateral models, all with the same graph, and same time distributions. Sets the number of mixture components to each model.
+    Creates n Unilateral models, all with the same graph, and same time distributions.
     """
     if graph is None:
         graph = {
@@ -130,7 +138,6 @@ def create_models(
             model.diag_time_dists["early"] = early_prior
             if include_late:
                 model.diag_time_dists["late"] = late_binomial
-        model.n_mixture_components = n_mixture_components
         models.append(model)
     if n > 1:
         return models
@@ -398,9 +405,76 @@ def plot_prevalences_icd(
     fade_colors = fade_to_white(base_color, len(prev_icds) + 2)[:-2]
 
     w_data, sp = 0.85, 0.15
-    overlap = 0.2
+    overlap = 0.1
     w_icd = w_data / (2 * overlap + len(icds_codes) * (1 - 2 * overlap))
-    icd_spacing = (w_data - w_icd) / (len(icds_codes) - 1)
+    if len(icds_codes) > 1:
+        icd_spacing = (w_data - w_icd) / (len(icds_codes) - 1)
+    else:
+        icd_spacing = w_data - w_icd
+    rel_pos_icds = [
+        i * icd_spacing + (-w_data / 2 + w_icd / 2) for i in range(len(icds_codes))
+    ]
+    pos = [1 + 1 * i for i in range(len(x_labels))]
+    # w_icd_fill = (w_data/len(icds_codes))
+    # w_icd =w_icd_fill*(1-overlap)
+
+    # rel_pos_icds = [w_icd_fill/2 + i*w_icd_fill - (w_data)/2 for i in range(len(oc_icds))]
+    pos_icds = [[p + rel_pos_icds[i] for p in pos] for i in range(len(icds_codes))]
+    # pos[1] += 0.075
+    # pos[2] -= 0.075
+
+    fig, ax = plt.subplots(1, 1, figsize=set_size(width="single"), tight_layout=True)
+    bar_kwargs = {"width": w_icd, "align": "center"}
+    plt.bar(
+        pos,
+        prev_loc,
+        width=w_data,
+        color=usz_red,
+        hatch="////",
+        label="mean",
+        alpha=0.0,
+    )
+
+    for i, prev_icd in enumerate(prev_icds[::-1]):
+        j = len(prev_icds) - i - 1
+        plt.bar(
+            pos_icds[j],
+            height=prev_icd,
+            color=fade_colors[j],
+            label=icds_codes[j],
+            edgecolor=base_color,
+            alpha=0.92,
+            **bar_kwargs,
+        )
+
+    ax.set_xticks(pos)
+    ax.set_xticklabels(x_labels)
+    ax.set_xlabel("LNLs")
+
+    ax.set_yticks(np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1))
+    ax.set_yticklabels(
+        [f"{100*tick:.0f}%" for tick in np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1)]
+    )
+    ax.set_ylabel("ipsilateral involvement")
+    ax.grid(axis="y")
+    ax.legend()
+    fig.savefig(save_name)
+    # plt.show()
+
+
+def plot_prevalences_categories(
+    prev_loc, prev_mean, lnls_full, icds_codes, colors, edge_color, save_name
+):
+    x_labels = lnls_full
+    # fade_colors = fade_to_white(base_color, len(prev_icds) + 2)[:-2]
+
+    w_data, sp = 0.85, 0.15
+    overlap = 0.15
+    w_icd = w_data / (2 * overlap + len(icds_codes) * (1 - 2 * overlap))
+    if len(icds_codes) > 1:
+        icd_spacing = (w_data - w_icd) / (len(icds_codes) - 1)
+    else:
+        icd_spacing = w_data - w_icd
     rel_pos_icds = [
         i * icd_spacing + (-w_data / 2 + w_icd / 2) for i in range(len(icds_codes))
     ]
@@ -415,33 +489,35 @@ def plot_prevalences_icd(
 
     fig, ax = plt.subplots(1, 1, figsize=set_size(width="full"), tight_layout=True)
     bar_kwargs = {"width": w_icd, "align": "center"}
-
-    for i, prev_icd in enumerate(prev_icds[::-1]):
-        j = len(prev_icds) - i - 1
-        plt.bar(
-            pos_icds[j],
-            height=prev_icd,
-            color=fade_colors[j],
-            label=icds_codes[j],
-            **bar_kwargs,
-        )
     plt.bar(
         pos,
-        prev_loc,
+        prev_mean,
         width=w_data,
-        color=usz_red,
+        color=usz_gray,
         hatch="////",
         label="mean",
         alpha=0.0,
     )
+    for i, prev_icd in enumerate(prev_loc[::-1]):
+        j = len(prev_loc) - i - 1
+        plt.bar(
+            pos_icds[j],
+            height=prev_icd,
+            color=colors[j],
+            label=icds_codes[j],
+            # edgecolor=edge_colors[j],
+            alpha=0.95,
+            **bar_kwargs,
+        )
+
     ax.set_xticks(pos)
     ax.set_xticklabels(x_labels)
     ax.set_xlabel("LNLs")
 
-    ax.set_yticks(np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1))
-    ax.set_yticklabels(
-        [f"{100*tick:.0f}%" for tick in np.arange(0.0, 1.1 * max(max(prev_icds)), 0.1)]
-    )
+    ticks_val = np.arange(0.0, 0.75, 0.1)
+    # ticks_val = np.arange(0.0, 1.1 * max(max(prev_loc)), 0.1)
+    ax.set_yticks(ticks_val)
+    ax.set_yticklabels([f"{100*tick:.0f}%" for tick in ticks_val])
     ax.set_ylabel("ipsilateral involvement")
     ax.grid(axis="y")
     ax.legend()
@@ -527,3 +603,63 @@ def create_states(lnls, total_lnls=True):
         ]
 
     return states_all
+
+
+def plot_histograms(data_in, states, single_line, loc, colors, bins=50):
+    for state in states:
+        try:
+            data = {k: v[state] for k, v in data_in.items()}
+        except:
+            state = str(state)
+            data = {k: v[state] for k, v in data_in.items()}
+        fig, axs = plt.subplots(1, figsize=set_size(width="full"), tight_layout=True)
+        # fig.suptitle('S2')
+        hist_cycl = cycler(histtype=["stepfilled", "step"]) * cycler(
+            color=list(colors.values())
+        )
+        line_cycl = cycler(linestyle=["-", "--"]) * cycler(color=list(colors.values()))
+        print("Set up figure")
+
+        values = []
+        labels = []
+        num_matches = []
+        num_totals = []
+        lines = []
+        min_value = 1.0
+        max_value = 0.0
+        for label, d in data.items():
+            values.append([ds * 100 for ds in d[0]])
+            labels.append(label)
+            num_matches.append(d[1][0])
+            num_totals.append(d[1][1])
+            lines.append(100.0 * num_matches[-1] / num_totals[-1])
+            min_value = np.minimum(1, np.min(values))
+            max_value = np.maximum(0, np.max(values))
+
+        min_value = np.min(lines, where=~np.isnan(lines), initial=min_value)
+        max_value = np.max(lines, where=~np.isnan(lines), initial=max_value)
+
+        hist_kwargs = {
+            "bins": np.linspace(min_value, max_value, bins),
+            "density": True,
+            "alpha": 0.6,
+            "linewidth": 2.0,
+        }
+
+        x = np.linspace(min_value, max_value, 200)
+        zipper = zip(values, labels, num_matches, num_totals, hist_cycl, line_cycl)
+        # ax = axs[int(np.floor(i/2))][i%2]
+        ax = axs
+        for i, (vals, label, a, n, hstyle, lstyle) in enumerate(zipper):
+            ax.hist(vals, label=label, **hist_kwargs, **hstyle)
+            if not np.isnan(a) and not (i > 0 and single_line):
+                post = sp.stats.beta.pdf(x / 100.0, a + 1, n - a + 1) / 100.0
+                if single_line:
+                    lstyle["color"] = usz_red
+                ax.plot(x, post, label=f"{int(a)}/{int(n)}", **lstyle)
+            ax.legend()
+            ax.set_xlabel("probability [%]")
+        ax.set_title(f"{state}", fontsize="small", fontweight="regular")
+        print(f"Plotted {len(values)} histograms")
+        plt.savefig(PLOT_PATH / f"hist_{loc}_{state}.png")
+        plt.show()

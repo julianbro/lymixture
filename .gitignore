@@ -185,3 +185,7 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,jupyternotebooks
+
+### Large Data Files (e.g. .hdf5 and .npy) ###
+*.hdf5
+*.npy

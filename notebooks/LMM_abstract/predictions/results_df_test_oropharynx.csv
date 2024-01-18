@@ -1,0 +1,17 @@
+T-Stage,ICD,Types,"{'I': None, 'II': None, 'III': None, 'IV': True}","{'I': None, 'II': None, 'III': True, 'IV': None}","{'I': None, 'II': True, 'III': None, 'IV': None}","{'I': True, 'II': None, 'III': None, 'IV': None}"
+all,C01,Observed,0.09,0.35,0.84,0.1
+all,C01,Predicted,0.1,0.33,0.79,0.1
+all,C01,Difference (MM),0.01,-0.02,-0.05,-0.0
+all,C01,Difference (Indp),0.0,-0.03,-0.11,-0.02
+all,C09,Observed,0.1,0.3,0.73,0.09
+all,C09,Predicted,0.1,0.31,0.74,0.11
+all,C09,Difference (MM),-0.01,0.02,0.01,0.02
+all,C09,Difference (Indp),-0.01,0.03,0.01,-0.01
+all,C10,Observed,0.06,0.34,0.62,0.1
+all,C10,Predicted,0.09,0.28,0.64,0.13
+all,C10,Difference (MM),0.03,-0.06,0.03,0.03
+all,C10,Difference (Indp),0.04,-0.01,0.12,-0.02
+all,Ind,Observed,0.09,0.31,0.73,0.08
+all,Ind,Predicted,0.1,0.32,0.74,0.08
+all,Ind,Difference (MM),0.0,0.01,0.0,0.0
+all,Ind,Difference (Indp),0.0,0.01,0.0,0.0

@@ -259,6 +259,7 @@ def create_obs_pred_df_single(
     patterns,
     lnls,
     save_name=None,
+    n_predictions=None,
 ):
     """
     Uses lyscripts methods to create a DataFrame comparing observed and predicted prevalences.
@@ -278,6 +279,14 @@ def create_obs_pred_df_single(
     # We need to create a copy since else it could lead to problems
     data = data_input.copy(deep=True)
 
+    # Sample from the sample chain, if n_predictions is given
+    samples = samples_for_predictions
+    if n_predictions is not None:
+        random_idx = random.sample(
+            range(samples_for_predictions.shape[0]), n_predictions
+        )
+        samples = [samples_for_predictions[i, :] for i in random_idx]
+
     # Initialize dictionaries for storing results
     df_dict = {}
 
@@ -293,7 +302,7 @@ def create_obs_pred_df_single(
                     model=model,
                     n_clusters=n_clusters,
                     cluster_assignment=cluster_assignment,
-                    samples=samples_for_predictions,
+                    samples=samples,
                     t_stage=t_stage,
                 )
             )
@@ -339,4 +348,5 @@ def create_obs_pred_df_single(
     # Save DataFrame if a filename is provided
     if save_name:
         df.to_csv(save_name)
-    return df, None
+    return df, df_dict
+

@@ -1,7 +1,6 @@
 from functools import cached_property
 import logging
 import os
-from pyexpat import model
 import random
 import numpy as np
 import pandas as pd
@@ -9,26 +8,15 @@ import emcee
 import lymph
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-from corner import corner
-from scipy import cluster
-
-from core.costum_types import EMConfigType
-
+from typing import Any, Dict, List, Optional
 
 from em_sampling import (
     ExpectationMaximization,
     History,
-    assign_global_params,
-    em_sampler,
     emcee_simple_sampler,
     exceed_param_bound,
-    llh_theta_given_z,
-    plot_history,
 )
 from lyscripts.sample import sample_from_global_model_and_configs
-from lyscripts.plot.corner import get_param_labels
-from lyscripts.plot.utils import save_figure
 from model_functions import (
     compute_state_probability_matrices,
     compute_cluster_assignment_matrix,
@@ -385,6 +373,7 @@ class LymphMixtureModel:
 
     def estimate_cluster_assignments(self, em_config=None) -> (np.ndarray, History):
         """Estimates the cluster assignments using an EM algortihm"""
+
         self.em_algortihm = ExpectationMaximization(lmm=self, em_config=em_config)
 
         estimated_cluster_assignments, em_history = self.em_algortihm.run_em()
@@ -398,7 +387,7 @@ class LymphMixtureModel:
         force_resampling: bool = False,
     ):
         """
-        Performs MCMC sampling to determine final model parameters.
+        Performs MCMC sampling to determine model parameters for the current cluster assignments.
         """
         global LMM_GLOBAL
 
@@ -466,18 +455,17 @@ class LymphMixtureModel:
         em_config: Optional[dict] = None,
         mcmc_config: Optional[dict] = None,
         force_resampling: bool = False,
-        do_plot_history: bool = False,
         cluster_assignments: np.ndarray = None,
     ):
         """
         Fits the mixture model, i.e. finds the optimal cluster assignments and the cluster parameters, using (1) the EM algorithm and (2) the MCMC sampling method.
         """
+        # Ugly, but we need to do it for the mcmc sampling.
         global LMM_GLOBAL
         LMM_GLOBAL = self
 
         # Skip the EM-Algorithm if there is already a cluster asignments (Only for debug)
         if cluster_assignments is not None:
-            # Only for debug
             self.logger.info(
                 "Skipping EM Algortihm, since cluster assignment is already given"
             )
@@ -486,25 +474,17 @@ class LymphMixtureModel:
             except:
                 history = None
         else:
+            # Estimate the Cluster Assignments.
             cluster_assignments, history = self.estimate_cluster_assignments(em_config)
             np.save(
                 self.samples_dir / "final_cluster_assignments.npy", cluster_assignments
             )
-            # cluster_assignments = [0.89045091, 0.13857439, 0.89188093]
-
-        # if do_plot_history:
-        #     history.plot_history(
-        #         self.subpopulation_labels,
-        #         list(self.lymph_model.get_params(as_dict=True).keys()),
-        #         self.n_clusters,
-        #         None,
-        #     )
 
         self.cluster_assignments = cluster_assignments
+
         # MCMC Sampling
-        # Refine the cluster parameters using MCMC based on the assignments from EM
+        # Find the cluster parameters using MCMC based on the cluster assignments.
         # Store the final cluster assignments and parameters
-        # TODO for now, if a sample exists already, skip sampling for perfomance
         sample_chain = []
         if mcmc_config is not None:
             sample_chain, _, _ = self._mcmc_sampling(
@@ -757,8 +737,3 @@ class LymphMixtureModel:
             f"Succesfully created results dataframe in {self.predictions_dir}"
         )
         return df
-
-    def predict(self, cluster_assignmnet, for_states):
-        """Implements the predict function for a new icd code (cluster assignmnet)"""
-        # TODO todo
-        self.logger.info("Predict method is not yet implemented.")

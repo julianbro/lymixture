@@ -605,7 +605,7 @@ def create_states(lnls, total_lnls=True):
     return states_all
 
 
-def plot_histograms(data_in, states, single_line, loc, colors, bins=50):
+def plot_histograms(data_in, states, single_line, loc, colors, bins=50, plot_path=None):
     for state in states:
         try:
             data = {k: v[state] for k, v in data_in.items()}
@@ -661,5 +661,8 @@ def plot_histograms(data_in, states, single_line, loc, colors, bins=50):
             ax.set_xlabel("probability [%]")
         ax.set_title(f"{state}", fontsize="small", fontweight="regular")
         print(f"Plotted {len(values)} histograms")
-        plt.savefig(PLOT_PATH / f"hist_{loc}_{state}.png")
+        if plot_path is None:
+            plt.savefig(PLOT_PATH / f"hist_{loc}_{state}.png")
+        else:
+            plt.savefig(plot_path / f"hist_{loc}_{state}.png")
         plt.show()

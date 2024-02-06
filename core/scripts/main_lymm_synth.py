@@ -21,8 +21,8 @@ import sys, os
 from icd_definitions import desc_to_icd, icd_to_desc
 from lyscripts.sample import sample_from_model
 from em_sampling import em_sampler
-from costum_types import EMConfigType
-from util_2 import (
+from core.types import EMConfigType
+from core.utils import (
     set_size,
     usz_colors,
     create_models,
@@ -436,7 +436,7 @@ if __name__ == "__main__":
     # Using Mixture Model Class to make predictions for single ICD code
     ############################
     # create the patterns dataframe for all LNL's, (total risk for the lnl's)
-    from core.util_2 import create_states
+    from core.utils import create_states
 
     states_all = create_states(lnls_full)
 

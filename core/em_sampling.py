@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
 from lyscripts.plot.utils import save_figure
-from util_2 import set_size
-from costum_types import EMConfigType
+from core.utils import set_size
+from core.types import EMConfigType
 from lyscripts.sample import sample_from_global_model_and_configs
 
 global MODELS, N_CLUSTERS

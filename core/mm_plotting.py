@@ -1,7 +1,7 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
 import corner
-from util_2 import set_size
+from core.utils import set_size
 from lyscripts.plot.utils import save_figure
 
 

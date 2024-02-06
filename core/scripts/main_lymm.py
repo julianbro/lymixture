@@ -21,7 +21,7 @@ import sys, os
 from icd_definitions import desc_to_icd, icd_to_desc
 from lyscripts.sample import sample_from_model
 from em_sampling import em_sampler
-from util_2 import (
+from core.utils import (
     set_size,
     usz_red,
     usz_colors,

@@ -681,17 +681,19 @@ def sample_from_global_model_and_configs(
     if backend is None:
         backend = emcee.backends.Backend()
 
-    nwalkers = sampling_params["walkers_per_dim"] *ndim
+    nwalkers = sampling_params["walkers_per_dim"] * ndim
     thin_by = sampling_params.get("thin_by", 1)
     sampling_kwargs = {"initial_state": starting_point}
 
     _ = run_mcmc_with_burnin(
-        nwalkers, ndim, log_prob_fn,
+        nwalkers,
+        ndim,
+        log_prob_fn,
         nsteps=sampling_params["nsteps"],
         burnin=sampling_params["nburnin"],
         persistent_backend=backend,
         sampling_kwargs=sampling_kwargs,
-        keep_burnin=False, # To not use backend at all.??
+        keep_burnin=False,  # To not use backend at all.??
         thin_by=thin_by,
         verbose=verbose,
         npools=0,

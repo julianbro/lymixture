@@ -81,8 +81,7 @@ def draw_m_imputations(posterior: np.ndarray, m: int) -> List[np.ndarray]:
         return [np.mean(posterior, axis=0)]
 
     return [
-        posterior[idx]
-        for idx in np.random.choice(posterior.shape[0], m, replace=False)
+        posterior[idx] for idx in np.random.choice(posterior.shape[0], m, replace=False)
     ]
 
 
@@ -192,7 +191,6 @@ class ExpectationMaximization:
             self.current_cluster_parameters, self.current_cluster_assignments
         )
 
-
     def mcmc_sampling(self, log_prob_fn, ndim, llh_args=None, initial_guess=None):
         """
         Uses MCMC sampling to estimate the density of the given function. Returns
@@ -221,7 +219,6 @@ class ExpectationMaximization:
         self.emcee_end_point = end_point
         return sample_chain, log_probs
 
-
     def maximize_estimation(self, maximize_fn, ndim, llh_args=None, initial_guess=None):
         """Returns the maximizer of the function given."""
 
@@ -241,7 +238,6 @@ class ExpectationMaximization:
         self.maximizer_end_point = maximizer
         max_llh = -res.fun
         return maximizer, max_llh
-
 
     def init_run_em(self):
         """Initializes objects needed for runnning the EM algortihm."""
@@ -279,9 +275,10 @@ class ExpectationMaximization:
             self.convergence.get_initial_values(),
         )
 
-
     def run_em(self):
-        logger.info(f"Run EM with method {self.em_config['method']} for max {self.max_steps} steps.")
+        logger.info(
+            f"Run EM with method {self.em_config['method']} for max {self.max_steps} steps."
+        )
         self.init_run_em()
 
         # Run the EM algorithm.
@@ -313,10 +310,11 @@ class ExpectationMaximization:
             self.current_step = iteration
 
         if not converged:
-            logger.info("Max steps reached, no convergence, return current approximation.")
+            logger.info(
+                "Max steps reached, no convergence, return current approximation."
+            )
 
         return self.current_cluster_assignments, self.history
-
 
     def e_step(self):
         logger.info(f"Step {self.current_step}: Perform expectation.")
@@ -339,7 +337,6 @@ class ExpectationMaximization:
         self.current_cluster_assignments = cluster_assignments_posterior.mean(axis=0)
         self.current_cluster_assignments_posterior = cluster_assignments_posterior
         logger.info(f"Expectation yields: {self.current_cluster_assignments}")
-
 
     def m_step(self):
         """
@@ -368,7 +365,6 @@ class ExpectationMaximization:
         self.current_likelihood = max_llh
         logger.info(f"Maximation yields: {self.current_cluster_parameters}")
 
-
     def e_step_sampling_cluster_parameters(self):
         """
         This implements the E-Step of the EM algorithm in the 'inverted' method, where
@@ -390,7 +386,6 @@ class ExpectationMaximization:
         self.current_cluster_parameters = cluster_parameters_posterior.mean(axis=0)
         self.current_cluster_parameters_posterior = cluster_parameters_posterior
         logger.info(f"Expectation yields: {self.current_cluster_parameters}")
-
 
     def m_step_sampling_cluster_assignments(self):
         """
@@ -418,7 +413,6 @@ class ExpectationMaximization:
         self.current_likelihood = max_llh
         logger.info(f"Maximation yields: {self.current_cluster_assignments}")
 
-
     @staticmethod
     def default_em_config() -> EMConfigType:
         return {
@@ -441,11 +435,9 @@ class ExpectationMaximization:
             },
         }
 
-
     def set_em_config(self, new_config):
         for k, v in new_config.items():
             self.em_config[k] = v
-
 
     def likelihood(self, cluster_parameters=None, cluster_assignment=None):
         # Access the likelihood function from LMM
@@ -468,12 +460,12 @@ class History:
     the EM-algorithm. The class holds 4 different values: likelihood, cluster
     assignments, cluster parameters, and convergence values.
     """
+
     def __init__(self):
         self.cluster_assignments = []
         self.cluster_parameters = []
         self.likelihood = []
         self.convergence_value = []
-
 
     def add_entry(
         self, cluster_assignments, cluster_parameters, likelihood, conv_values
@@ -483,7 +475,6 @@ class History:
         self.cluster_parameters.append(cluster_parameters),
         self.likelihood.append(likelihood)
         self.convergence_value.append(conv_values)
-
 
     def save(self, save_dir):
         """Build a history dict and save the dictionary."""
@@ -495,10 +486,8 @@ class History:
         }
         np.save(save_dir / "history", obj)
 
-
     def get_entries(self):
         return self.entries
-
 
     def plot_history(
         self, labels_subpopulation, parameter_labels, n_clusters, save_dir
@@ -569,7 +558,7 @@ class History:
         fig.tight_layout()
 
         if save_dir is not None:
-            save_figure(save_dir/f"history_em", fig, formats=["png", "svg"])
+            save_figure(save_dir / f"history_em", fig, formats=["png", "svg"])
 
 
 class Convergence:
@@ -577,6 +566,7 @@ class Convergence:
     Class which handles the convergence of the EM algorithm. The idea is one can define
     different 'convergence checker' using the criterion keyword.
     """
+
     def __init__(self, config, criterion="default"):
         self.criterion = criterion
         self.config = config
@@ -595,7 +585,6 @@ class Convergence:
 
         self.current_convergence_values = None
 
-
     def update(self, instance):
         # Update the convergence-related data
         if self.criterion == "default":
@@ -607,17 +596,14 @@ class Convergence:
             )
             self.params["likelihood"].append(instance.current_likelihood)
 
-
     def get_initial_values(self):
         """Returns initial values for the given criterion."""
         if self.criterion == "default":
             return [1, 1, 1]
 
-
     def get_current_values(self):
         """Simply returns the current convergence values."""
         return self.current_convergence_values
-
 
     def check(self):
         # Implement the logic to check for convergence
@@ -626,7 +612,6 @@ class Convergence:
             return self.default_convergence_check()
 
         return False
-
 
     def default_convergence_check(self):
         """

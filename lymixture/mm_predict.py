@@ -14,6 +14,7 @@ from lyscripts.predict.risks import predicted_risk
 
 ## Prevalences
 
+
 def mm_generate_predicted_prevalences(
     cluster_assignments: np.ndarray,
     cluster_parameters: np.ndarray,

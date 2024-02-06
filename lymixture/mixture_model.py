@@ -87,6 +87,7 @@ class LymphMixtureModel:
         base_dir (Path): Base directory for saving outputs.
         name (str, optional): Name for the model. Defaults to 'LMM'.
     """
+
     def __init__(
         self,
         lymph_model: lymph.models.Unilateral,
@@ -117,11 +118,9 @@ class LymphMixtureModel:
             f"{self.n_clusters} clusters."
         )
 
-
     def delete_cached_property(self, property: str):
         if property in self.__dict__:
             del self.__dict__[property]
-
 
     def compute_expected_n(self):
         """(Re-)Computes expected number of various parameters used by the model"""
@@ -131,12 +130,10 @@ class LymphMixtureModel:
         self.n_states = len(self.lymph_model.state_list)
         self.n_tstages = len(list(self.lymph_model.diag_time_dists.keys()))
 
-
     @property
     def subpopulation_labels(self):
         """Get or set the labels for the subpopulations."""
         return self._subpopulation_labels
-
 
     @subpopulation_labels.setter
     def subpopulation_labels(self, value: List[str]):
@@ -153,7 +150,6 @@ class LymphMixtureModel:
             )
         self._subpopulation_labels = value
 
-
     @cached_property
     def cluster_state_probabilty_matrices(self) -> np.ndarray:
         """
@@ -168,7 +164,6 @@ class LymphMixtureModel:
             self.cluster_parameters, self.lymph_model, self.n_clusters
         )
 
-
     @cached_property
     def cluster_assignment_matrix(self) -> np.ndarray:
         """Holds the cluster assignment matrix."""
@@ -181,7 +176,6 @@ class LymphMixtureModel:
             self.cluster_assignments, self.n_subpopulation, self.n_clusters
         )
 
-
     @cached_property
     def state_probability_matrices(self) -> np.ndarray:
         """Holds the state probability matrices for every subpopulation and every t_stage."""
@@ -189,14 +183,12 @@ class LymphMixtureModel:
             self.cluster_assignment_matrix, self.cluster_state_probabilty_matrices
         )
 
-
     @property
     def cluster_assignments(self):
         """
         Property to get or set the cluster assignments.
         """
         return self._cluster_assignments
-
 
     @cluster_assignments.setter
     def cluster_assignments(self, value):
@@ -216,12 +208,10 @@ class LymphMixtureModel:
         self.delete_cached_property("cluster_assignment_matrix")
         self.delete_cached_property("state_probability_matrices")
 
-
     @property
     def cluster_parameters(self):
         """Property to get or set the cluster parameters"""
         return self._cluster_parameters
-
 
     @cluster_parameters.setter
     def cluster_parameters(self, value):
@@ -239,7 +229,6 @@ class LymphMixtureModel:
         # Delete the cluster matrices and the state probability matrices
         self.delete_cached_property("cluster_state_probabilty_matrices")
         self.delete_cached_property("state_probability_matrices")
-
 
     def load_data(
         self,
@@ -268,7 +257,6 @@ class LymphMixtureModel:
             self.subpopulation_data, self.lymph_model, **kwargs
         )
 
-
     def _mm_hmm_likelihood(self, log: bool = True) -> float:
         """
         Implements the likelihood function
@@ -289,7 +277,6 @@ class LymphMixtureModel:
                 else:
                     llh *= np.prod(state_probabilty @ diagnose_matrix)
         return llh
-
 
     def mm_hmm_likelihood(
         self,
@@ -333,13 +320,11 @@ class LymphMixtureModel:
 
         return self._mm_hmm_likelihood(log=log)
 
-
     def estimate_cluster_assignments(self, em_config=None) -> (np.ndarray, History):
         """Estimates the cluster assignments using an EM algortihm"""
         self.em_algortihm = ExpectationMaximization(lmm=self, em_config=em_config)
         estimated_cluster_assignments, em_history = self.em_algortihm.run_em()
         return estimated_cluster_assignments, em_history
-
 
     def _mcmc_sampling(self, mcmc_config: dict):
         """
@@ -382,7 +367,6 @@ class LymphMixtureModel:
 
         return sample_chain, end_point, log_probs
 
-
     def fit(
         self,
         em_config: Optional[dict] = None,
@@ -410,7 +394,6 @@ class LymphMixtureModel:
 
         return sample_chain, self.cluster_assignments, history
 
-
     def plot_cluster_parameters(self):
         """
         Corner Plot for the cluster parameters. Plots the corner plots for cluster
@@ -424,7 +407,6 @@ class LymphMixtureModel:
             self.figures_dir,
             logger,
         )
-
 
     def plot_cluster_assignment_matrix(self, labels: Optional[List[str]] = None):
         """
@@ -447,7 +429,6 @@ class LymphMixtureModel:
 
         except ValueError:
             logger.error(f"'{label}' is not in the supopulation labelk.")
-
 
     def predict_prevalence_for_cluster_assignment(
         self,
@@ -480,7 +461,6 @@ class LymphMixtureModel:
             invert,
             **_kwargs,
         )
-
 
     def predict_risk(
         self,
@@ -518,7 +498,6 @@ class LymphMixtureModel:
             **_kwargs,
         )
 
-
     def create_observed_predicted_df_for_cluster_assignment(
         self,
         cluster_assignment,
@@ -547,7 +526,6 @@ class LymphMixtureModel:
         )
         logger.info(self.predictions_dir.joinpath(Path(f"predictions_{save_name}.csv")))
         return oc_df, _
-
 
     def create_result_df(
         self,

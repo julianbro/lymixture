@@ -69,8 +69,7 @@ def compute_cluster_state_probabilty_matrices(
 
 
 def compute_state_probability_matrices(
-    cluster_assignment_matrix,
-    cluster_state_probabilty_matrices
+    cluster_assignment_matrix, cluster_state_probabilty_matrices
 ):
     """
     computes the :math:`\Kappa` matrices for each subsite S and t_stage tau. Generates

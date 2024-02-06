@@ -189,3 +189,6 @@ pyrightconfig.json
 ### Large Data Files (e.g. .hdf5 and .npy) ###
 *.hdf5
 *.npy
+
+# dynamically create version file
+*/_version.py

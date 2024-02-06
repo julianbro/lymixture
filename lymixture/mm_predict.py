@@ -188,64 +188,6 @@ def _create_obs_pred_df_single(
     return df, [obs_prev, pred_prev, pred_prev_std, pred_prev_list]
 
 
-# def generate_predicted_prevalences_for_mixture(
-#     pattern: Dict[str, Dict[str, bool]],
-#     model: lymph.models.Unilateral,
-#     n_clusters: int,
-#     cluster_assignment: np.ndarray,
-#     samples: np.ndarray,
-#     t_stage: str = "early",
-#     modality_spsn: Optional[List[float]] = None,
-#     invert: bool = False,
-#     **_kwargs,
-# ) -> Generator[float, None, None]:
-#     """Compute the prevalence of a given `pattern` of lymphatic progression using a
-#     `model` and trained `samples`.
-
-#     Do this computation for the specified `t_stage` and whether or not the tumor has
-#     a `midline_ext`. `modality_spsn` defines the values for specificity & sensitivity
-#     of the diagnostic modality for which the prevalence is to be computed. Default is
-#     a value of 1 for both.
-
-#     Use `invert` to compute 1 - p.
-#     """
-#     lnls = list(model.graph.lnls.keys())
-#     pattern = complete_pattern(pattern, lnls)
-
-#     if modality_spsn is None:
-#         modality_spsn = [1., 1.]
-
-#     model.modalities = {"max_llh": modality_spsn}
-
-#     if not isinstance(model, lymph.models.Unilateral):
-#         raise NotImplementedError()
-
-#     patient_row = create_patient_row(
-#         pattern,
-#         t_stage,
-#         False,
-#         make_unilateral=True,
-#     )
-#     if t_stage in ["early", "late"]:
-#         mapping = None
-#     else:
-#         mapping = lambda x: "all"
-
-#     # Create an instance of the mixture model
-#     lmm = LymphMixtureModel(model, n_clusters=n_clusters, n_subpopulation=1)
-#     # assign the cluster assignment to the model.
-#     lmm.cluster_assignments = cluster_assignment[:-1]
-#     # load the patient row data
-#     lmm.load_data([patient_row], mapping=mapping)
-
-#     # compute prevalence as likelihood of diagnose `prev`, which was defined above
-#     for sample in samples:
-#         prevalence = compute_predicted_prevalence_for_mixture(
-#             loaded_mixture_model=lmm,
-#             given_params=sample,
-#         )
-#         yield (1.0 - prevalence) if invert else prevalence
-
 
 def create_obs_pred_df_single(
     samples_for_predictions: np.ndarray,

@@ -2,17 +2,12 @@ import logging
 from typing import List, Optional
 
 import emcee
-import matplotlib.pyplot as plt
 import numpy as np
-from lyscripts.plot.utils import get_size, save_figure
-from matplotlib.ticker import MaxNLocator
 from scipy.optimize import minimize
 from tqdm import tqdm
 
 from lymixture.types import EMConfigType
 from lymixture.utils import sample_from_global_model_and_configs
-
-# from lyscripts.sample import sample_from_global_model_and_configs
 
 global MODELS, N_CLUSTERS
 
@@ -87,7 +82,7 @@ def draw_m_imputations(posterior: np.ndarray, m: int) -> List[np.ndarray]:
 
 def boundary_condition_cluster_assignments(cluster_assignments):
     n_k = LMM.n_clusters
-    for s in range(LMM.n_subpopulation):
+    for s in range(LMM.n_subgroup):
         if sum(cluster_assignments[s * (n_k - 1) : (s + 1) * (n_k - 1)]) >= 1:
             return True
 
@@ -488,77 +483,6 @@ class History:
 
     def get_entries(self):
         return self.entries
-
-    def plot_history(
-        self, labels_subpopulation, parameter_labels, n_clusters, save_dir
-    ):
-        fig, axs = plt.subplots(2, 2, figsize=get_size(width="full"))
-        plt.rcParams.update({"font.size": 8})  # Adjust font size
-
-        # Likelihood Plot
-        axs[0][0].plot(range(len(self.likelihood)), self.likelihood, label="Likelihood")
-        axs[0][0].set_xlabel("Steps")
-        axs[0][0].set_ylabel("Log Likelihood")
-        axs[0][0].xaxis.set_major_locator(MaxNLocator(integer=True))
-
-        # Weights Plot
-        ax = axs[0][1]
-        for i, l in enumerate(labels_subpopulation):
-            ax.plot(
-                range(len(self.cluster_assignments)),
-                [w[i] for w in self.cluster_assignments],
-                label=f"π_{l},0",
-            )
-        ax.set_xlabel("Steps")
-        ax.set_ylabel("Weights")
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small"
-        )
-
-        # Model Parameters Plot
-        ax = axs[1, 0]
-        label_ts = [
-            t.replace("primary", "T").replace("_spread", "")
-            for t in parameter_labels
-            if "primary" in t
-        ]
-        label_ts = [item for item in label_ts for _ in range(n_clusters)]
-
-        for i in range(0, len(label_ts), n_clusters):
-            for j in range(n_clusters):
-                ax.plot(
-                    range(len(self.cluster_parameters)),
-                    [w[i + j] for w in self.cluster_parameters],
-                    label=f"{label_ts[i]}^{j}",
-                )
-        ax.set_xlabel("Steps")
-        ax.set_ylabel("Parameter Values")
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small"
-        )
-
-        # Model Parameters Plot
-        ax = axs[1, 1]
-        label_ts = ["theta", "pi", "llh"]
-
-        for i, label in enumerate(label_ts):
-            ax.plot(
-                range(len(self.convergence_value)),
-                [v[i] for v in self.convergence_value],
-                label=label,
-            )
-        ax.set_xlabel("Steps")
-        ax.set_ylabel("Convergence Values")
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.legend(
-            loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small"
-        )
-        fig.tight_layout()
-
-        if save_dir is not None:
-            save_figure(save_dir / f"history_em", fig, formats=["png", "svg"])
 
 
 class Convergence:

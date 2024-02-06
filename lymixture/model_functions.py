@@ -1,29 +1,26 @@
-from typing import List
+from typing import Any, Generator
 
 import lymph
 import numpy as np
 import pandas as pd
 
 
-def create_diagnose_matrices(
-    data: List[pd.DataFrame], lymph_model: lymph.models.Unilateral, **kwargs
-) -> List[np.ndarray]:
-    """
-    Creates the diagnose matrices for each subsite S, given the data, the model, and
-    data loading parameters. Returns a list with S elements, for each subpopulation S
-    a list with tau arrays of shape (2^V, n_patients).
-    """
-    DS_list = []
-    for d in data:
-        lymph_model.load_patient_data(d, **kwargs)
-        diagnose_matrix_t_stages = [
-            lymph_model.diagnose_matrices[t_stage] for t_stage in lymph_model.t_stages
-        ]
-        DS_list.append(diagnose_matrix_t_stages)
-    return DS_list
+def gen_diagnose_matrices(
+    datasets: list[pd.DataFrame],
+    lymph_model: lymph.models.Unilateral,
+    load_kwargs: dict[str, Any] | None = None,
+) -> Generator[np.ndarray, None, None]:
+    """Generate the diagnose matrices for the individual subgroups."""
+    if load_kwargs is None:
+        load_kwargs = {}
+
+    for dataset in datasets:
+        lymph_model.load_patient_data(dataset, **load_kwargs)
+        for t_stage in lymph_model.t_stages:
+            yield lymph_model.diagnose_matrices[t_stage]
 
 
-def create_DS_list_from_models(models: List[lymph.models.Unilateral]):
+def create_DS_list_from_models(models: list[lymph.models.Unilateral]):
     """
     Creates the diagnose matrices for each subsite S, given lymph models with loaded
     data. Returns a list of S arrays with shape (tau, 2^V, n_patients).

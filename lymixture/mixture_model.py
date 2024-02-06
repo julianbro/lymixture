@@ -1,8 +1,7 @@
 import logging
 import random
 from functools import cached_property
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import emcee
 import lymph
@@ -15,12 +14,7 @@ from lymixture.em_sampling import (
     emcee_simple_sampler,
     exceed_param_bound,
 )
-from lymixture.mm_plotting import (
-    plot_cluster_assignments,
-    plot_cluster_parameters,
-)
 from lymixture.mm_predict import (
-    _create_obs_pred_df_single,
     create_obs_pred_df_single,
     mm_generate_predicted_prevalences,
     mm_predicted_risk,
@@ -29,11 +23,9 @@ from lymixture.model_functions import (
     compute_cluster_assignment_matrix,
     compute_cluster_state_probabilty_matrices,
     compute_state_probability_matrices,
-    create_diagnose_matrices,
+    gen_diagnose_matrices,
 )
 from lymixture.utils import sample_from_global_model_and_configs
-
-# from lyscripts.sample import sample_from_global_model_and_configs
 
 # pylint: disable=logging-fstring-interpolation
 
@@ -45,27 +37,12 @@ logger = logging.getLogger(__name__)
 global LMM_GLOBAL
 
 
-def get_param_labels_temp(model):
-    """
-    Temporary method to get parameter labels from a model.
-
-    Args:
-        model: Lymph model instance.
-
-    Returns:
-        list: List of parameter labels.
-    """
+def get_param_labels(model):
+    """Get parameter labels from a model."""
     return [
         t.replace("primary", "T").replace("_spread", "")
         for t in model.get_params(as_dict=True).keys()
     ]
-
-
-def as_list(val):
-    """Return val as list if it is not already a list"""
-    if not isinstance(val, list):
-        return [val]
-    return val
 
 
 def log_ll_cl_parameters(cluster_parameters):
@@ -78,77 +55,62 @@ def log_ll_cl_parameters(cluster_parameters):
 
 
 class LymphMixtureModel:
-    """
-    Wrapper model which handles the mixture components (clusters) in the lymph models.
-
-    Args:
-        lymph_models (list): List of lymph models.
-        n_clusters (int): Number of clusters.
-        base_dir (Path): Base directory for saving outputs.
-        name (str, optional): Name for the model. Defaults to 'LMM'.
-    """
+    """Class that handles the individual components of the mixture model."""
 
     def __init__(
         self,
-        lymph_model: lymph.models.Unilateral,
-        n_clusters: int,
-        n_subpopulation: int,
-        hdf5_output: str | Path | None = None,
-        **_kwargs,
+        model_cls: lymph.models.Unilateral,
+        model_kwargs: dict[str, Any] | None = None,
+        num_components: int = 2,
     ):
-        # Initialize model configurations
-        self.lymph_model = lymph_model
-        if not isinstance(lymph_model, lymph.models.Unilateral):
-            logger.error(
-                "Mixture model is only implemented for Unilateral cluster model."
+        """Initialize the mixture model.
+
+        The mixture will be based on the given `model_cls` (which is instantiated with
+        the `model_kwargs`), and will have `num_components`.
+        """
+        if model_kwargs is None:
+            model_kwargs = {}
+
+        if not issubclass(model_cls, lymph.models.Unilateral):
+            raise NotImplementedError(
+                "Mixture model only implemented for `Unilateral` model."
             )
-            raise NotImplementedError
-        self.n_clusters = n_clusters
-        self.n_subpopulation = n_subpopulation
 
-        if hdf5_output is None:
-            hdf5_output = Path("models/mixture.hdf5")
-        self.hdf5_output = Path(hdf5_output)
+        self.lymph_model = model_cls(**model_kwargs)
+        self.num_components = num_components
 
-        # Compute number of parameters expected by the model
-        self.compute_expected_n()
+        self._compute_component_nums()
 
         logger.info(
-            f"Create LymphMixtureModel of type {type(self.lymph_model)} with "
-            f"{self.n_clusters} clusters."
+            f"Created LymphMixtureModel based on {model_cls} model with "
+            f"{self.num_components} components."
         )
 
-    def delete_cached_property(self, property: str):
-        if property in self.__dict__:
-            del self.__dict__[property]
-
-    def compute_expected_n(self):
-        """(Re-)Computes expected number of various parameters used by the model"""
-        self.n_model_params = len(self.lymph_model.get_params())
-        self.n_cluster_parameters = self.n_model_params * self.n_clusters
-        self.n_cluster_assignments = self.n_subpopulation * (self.n_clusters - 1)
-        self.n_states = len(self.lymph_model.state_list)
-        self.n_tstages = len(list(self.lymph_model.diag_time_dists.keys()))
+    def _compute_component_nums(self):
+        """(Re-)compute total number of model params and free assignment values."""
+        num_model_params = len(self.lymph_model.get_params())
+        self.num_component_params = num_model_params * self.num_components
+        self.num_component_assignments = self.num_subgroups * (self.num_components - 1)
 
     @property
-    def subpopulation_labels(self):
-        """Get or set the labels for the subpopulations."""
-        return self._subpopulation_labels
+    def subgroup_labels(self):
+        """Get or set the labels for the subgroups."""
+        return self._subgroup_labels
 
-    @subpopulation_labels.setter
-    def subpopulation_labels(self, value: List[str]):
-        if len(value) != self.n_subpopulation:
+    @subgroup_labels.setter
+    def subgroup_labels(self, value: list[str]):
+        if len(value) != self.num_subgroups:
             raise ValueError(
-                "Number of labels do not match with number of subpopulations."
+                "Number of labels do not match with number of subgroups."
             )
         for i, v in enumerate(value):
             if not isinstance(v, str):
                 raise ValueError("ICD codes should be passed as list of strings.")
             logger.info(
-                f"Assigned {v} to supopulations with {len(self.subpopulation_data[i])} "
+                f"Assigned {v} to supopulations with {len(self.subgroup_datas[i])} "
                 "patients"
             )
-        self._subpopulation_labels = value
+        self._subgroup_labels = value
 
     @cached_property
     def cluster_state_probabilty_matrices(self) -> np.ndarray:
@@ -156,106 +118,105 @@ class LymphMixtureModel:
         Holds the cluster matrices (i.e the state probabilities of the cluster) for
         each t-stage and cluster.
         """
-        if self.cluster_parameters is None:
+        if self.component_params is None:
             raise ValueError(
                 "No cluster parameters are in the model. Please provide cluster parameters first."
             )
         return compute_cluster_state_probabilty_matrices(
-            self.cluster_parameters, self.lymph_model, self.n_clusters
+            self.component_params, self.lymph_model, self.num_components
         )
 
     @cached_property
     def cluster_assignment_matrix(self) -> np.ndarray:
         """Holds the cluster assignment matrix."""
-        if self.cluster_assignments is None:
+        if self.component_assignments is None:
             raise ValueError(
                 "No cluster assignments are loaded in the model. Please provide "
                 "cluster assignments first."
             )
         return compute_cluster_assignment_matrix(
-            self.cluster_assignments, self.n_subpopulation, self.n_clusters
+            self.component_assignments, self.num_subgroups, self.num_components
         )
 
     @cached_property
     def state_probability_matrices(self) -> np.ndarray:
-        """Holds the state probability matrices for every subpopulation and every t_stage."""
+        """Holds the state probability matrices for every subgroup and every t_stage."""
         return compute_state_probability_matrices(
             self.cluster_assignment_matrix, self.cluster_state_probabilty_matrices
         )
 
     @property
-    def cluster_assignments(self):
-        """
-        Property to get or set the cluster assignments.
-        """
-        return self._cluster_assignments
+    def num_subgroups(self):
+        """The number of subgroups."""
+        return len(self.subgroup_datas)
 
-    @cluster_assignments.setter
-    def cluster_assignments(self, value):
+    @property
+    def component_assignments(self):
+        """The assignment of subgroups to mixture components."""
+        return self._component_assignments
+
+    @component_assignments.setter
+    def component_assignments(self, value):
+        """Set new component assignments and delete the current cluster matrices.
+
+        Note that the model expects ``num_subgroups`` less parameters for the cluster
+        assignment due to the constraint that the cluster assignment of one subgroup
+        has to sum to 1.
         """
-        Setter for cluster assignments that deletes the current cluster matrices. Note
-        that the model expects ``n_subsites`` less parameters for the cluster
-        assignment due to the constraint that the cluster assignment of one
-        subpopulation has to sum to 1.
-        """
-        if len(value) != self.n_cluster_assignments:
+        if len(value) != self.num_component_assignments:
             raise ValueError(
                 "Number of provided cluster assignments do not match the number of "
                 "cluster assignments expected by the model."
             )
-        self._cluster_assignments = value
+        self._component_assignments = value
 
-        self.delete_cached_property("cluster_assignment_matrix")
-        self.delete_cached_property("state_probability_matrices")
+        del self.cluster_assignment_matrix
+        del self.state_probability_matrices
 
     @property
-    def cluster_parameters(self):
-        """Property to get or set the cluster parameters"""
-        return self._cluster_parameters
+    def component_params(self):
+        """The parameters of the individual mixture components."""
+        return self._component_params
 
-    @cluster_parameters.setter
-    def cluster_parameters(self, value):
+    @component_params.setter
+    def component_params(self, value):
+        """Set the component parameters.
+
+        This deletes the cluster state probability matrices and the state probability
+        matrices.
         """
-        Set the cluster parameters and delete the cluster state probability matrices
-        and the state probability matrices.
-        """
-        if len(value) != self.n_cluster_parameters:
+        if len(value) != self.num_component_params:
             raise ValueError(
                 "Number of provided cluster_parameters do not match the number of "
                 "cluster_parameters expected by the model."
             )
-        self._cluster_parameters = value
+        self._component_params = value
 
-        # Delete the cluster matrices and the state probability matrices
-        self.delete_cached_property("cluster_state_probabilty_matrices")
-        self.delete_cached_property("state_probability_matrices")
+        del self.cluster_state_probabilty_matrices
+        del self.state_probability_matrices
 
-    def load_data(
+    def load_patient_data(
         self,
         patient_data: pd.DataFrame,
         split_by: tuple[str, str, str],
         **kwargs,
     ):
-        """
-        Loads ``patient_data`` into the model. It is ``split_by`` the given column
-        (which is a tuple of three strings, because ``patient_data`` has a three-level
-        multiindex) and the resulting sub data is used to compute the diagnose matrices.
+        """Split the ``patient_data`` into subgroups and load it into the model.
 
-        See Also:
-            :py:class:`~lymph.models.Unilateral.load_patient_data`
+        This amounts to computing the diagnose matrices for the individual subgroups.
+        The ``split_by`` tuple should contain the three-level header of the LyProX-style
+        data. Any additional keyword arguments are passed to the
+        :py:meth:`~lymph.models.Unilateral.load_patient_data` method.
         """
         grouped = patient_data.groupby(split_by)
-        self.subpopulation_data = [df for _, df in grouped]
-        self.subpopulation_labels = [label for label, _ in grouped]
+        self.subgroup_datas = [df for _, df in grouped]
+        self.subgroup_labels = [label for label, _ in grouped]
 
-        # Delete the diagnose matrices
-        self.delete_cached_property("diagnose_matrices")
-        # And compute the diagnose matrices again.
-        # This is done directly here, because only here we have information about how
-        # to load the data in the models
-        self.diagnose_matrices = create_diagnose_matrices(
-            self.subpopulation_data, self.lymph_model, **kwargs
-        )
+        self.diagnose_matrices = list(gen_diagnose_matrices(
+            datasets=self.subgroup_datas,
+            lymph_model=self.lymph_model,
+            load_kwargs=kwargs,
+        ))
 
     def _mm_hmm_likelihood(self, log: bool = True) -> float:
         """
@@ -308,19 +269,19 @@ class LymphMixtureModel:
         """
 
         if cluster_parameters is not None:
-            self.cluster_parameters = cluster_parameters
+            self.component_params = cluster_parameters
 
         if cluster_assignments is not None:
-            self.cluster_assignments = cluster_assignments
+            self.component_assignments = cluster_assignments
 
         if data is not None:
             if load_data_kwargs is None:
                 load_data_kwargs = {}
-            self.load_data(data, **load_data_kwargs)
+            self.load_patient_data(data, **load_data_kwargs)
 
         return self._mm_hmm_likelihood(log=log)
 
-    def estimate_cluster_assignments(self, em_config=None) -> (np.ndarray, History):
+    def estimate_cluster_assignments(self, em_config=None) -> tuple[np.ndarray, History]:
         """Estimates the cluster assignments using an EM algortihm"""
         self.em_algortihm = ExpectationMaximization(lmm=self, em_config=em_config)
         estimated_cluster_assignments, em_history = self.em_algortihm.run_em()
@@ -345,7 +306,7 @@ class LymphMixtureModel:
             logger.info("Using simple sampler for MCMC")
             sample_chain, end_point, log_probs = emcee_simple_sampler(
                 log_prob_fn,
-                ndim=self.n_cluster_parameters,
+                ndim=self.num_component_params,
                 sampling_params=sampling_params,
                 starting_point=None,
                 hdf5_backend=hdf5_backend,
@@ -358,7 +319,7 @@ class LymphMixtureModel:
                 log_probs,
             ) = sample_from_global_model_and_configs(
                 log_prob_fn,
-                ndim=self.n_cluster_parameters,
+                ndim=self.num_component_params,
                 sampling_params=sampling_params,
                 starting_point=None,
                 backend=hdf5_backend,
@@ -369,8 +330,8 @@ class LymphMixtureModel:
 
     def fit(
         self,
-        em_config: Optional[dict] = None,
-        mcmc_config: Optional[dict] = None,
+        em_config: dict | None = None,
+        mcmc_config: dict | None = None,
     ):
         """
         Fits the mixture model, i.e. finds the optimal cluster assignments and the
@@ -381,7 +342,7 @@ class LymphMixtureModel:
         LMM_GLOBAL = self
 
         # Estimate the Cluster Assignments.
-        self.cluster_assignments, history = self.estimate_cluster_assignments(em_config)
+        self.component_assignments, history = self.estimate_cluster_assignments(em_config)
 
         # MCMC Sampling
         # Find the cluster parameters using MCMC based on the cluster assignments.
@@ -389,42 +350,15 @@ class LymphMixtureModel:
         if mcmc_config is not None:
             sample_chain, _, _ = self._mcmc_sampling(mcmc_config)
 
-        self.cluster_parameters = sample_chain.mean(axis=0)
+        self.component_params = sample_chain.mean(axis=0)
         self.cluster_parameters_chain = sample_chain
 
-        return sample_chain, self.cluster_assignments, history
-
-    def plot_cluster_parameters(self):
-        """
-        Corner Plot for the cluster parameters. Plots the corner plots for cluster
-        parameters using an external function.
-        """
-        labels = get_param_labels_temp(self.lymph_model)
-        plot_cluster_parameters(
-            self.cluster_parameters_chain,
-            self.n_clusters,
-            labels,
-            self.figures_dir,
-            logger,
-        )
-
-    def plot_cluster_assignment_matrix(self, labels: Optional[List[str]] = None):
-        """
-        Plots the cluster assignmnet matrix
-        """
-        if labels is None:
-            labels = self.subpopulation_labels
-        plot_cluster_assignments(
-            self.cluster_assignment_matrix,
-            labels=labels,
-            save_dir=self.figures_dir,
-            logger=logger,
-        )
+        return sample_chain, self.component_assignments, history
 
     def get_cluster_assignment_for_label(self, label: str):
         """Get the cluster assignment for the given label."""
         try:
-            index = self.subpopulation_labels.index(label)
+            index = self.subgroup_labels.index(label)
             return self.cluster_assignment_matrix[index, :]
 
         except ValueError:
@@ -433,11 +367,11 @@ class LymphMixtureModel:
     def predict_prevalence_for_cluster_assignment(
         self,
         cluster_assignment: np.ndarray,
-        for_pattern: Dict[str, Dict[str, bool]],
+        for_pattern: dict[str, dict[str, bool]],
         t_stage: str = "early",
-        modality_spsn: Optional[List[float]] = None,
+        modality_spsn: list[float] | None = None,
         invert: bool = False,
-        cluster_parameters: Optional[np.ndarray] = None,
+        cluster_parameters: np.ndarray | None = None,
         n_samples_for_prediction: int = 200,
         **_kwargs,
     ):
@@ -465,13 +399,13 @@ class LymphMixtureModel:
     def predict_risk(
         self,
         cluster_assignment: np.ndarray,
-        involvement: Dict[str, Dict[str, bool]],
+        involvement: dict[str, dict[str, bool]],
         t_stage: str,
         midline_ext: bool = False,
-        given_diagnosis: Optional[Dict[str, Dict[str, bool]]] = None,
-        given_diagnosis_spsn: Optional[List[float]] = None,
+        given_diagnosis: dict[str, dict[str, bool]] | None = None,
+        given_diagnosis_spsn: list[float] | None = None,
         invert: bool = False,
-        cluster_parameters: Optional[np.ndarray] = None,
+        cluster_parameters: np.ndarray | None = None,
         n_samples_for_prediction: int = 200,
         **_kwargs,
     ):
@@ -503,7 +437,6 @@ class LymphMixtureModel:
         cluster_assignment,
         for_states,
         data,
-        save_name="model",
     ):
         """
         Create an observed / predicted results dataframe for the given
@@ -513,7 +446,7 @@ class LymphMixtureModel:
         oc_df, _ = create_obs_pred_df_single(
             samples_for_predictions=self.cluster_parameters_chain,
             model=self.lymph_model,
-            n_clusters=self.n_clusters,
+            n_clusters=self.num_components,
             cluster_assignment=cluster_assignment,
             data_input=data,
             patterns=for_states,
@@ -521,117 +454,4 @@ class LymphMixtureModel:
             save_name=None,
         )
 
-        oc_df.to_csv(
-            self.predictions_dir.joinpath(Path(f"predictions_{save_name}.csv"))
-        )
-        logger.info(self.predictions_dir.joinpath(Path(f"predictions_{save_name}.csv")))
         return oc_df, _
-
-    def create_result_df(
-        self,
-        for_states,
-        lnls,
-        save_name="result_df",
-        independent_model=None,
-        independent_model_samples=None,
-        labels=None,
-        for_t_stages=None,
-        n_samples_for_prediction=50,
-    ):
-        """
-        Creates a pd.Dataframe which holds the predictions and observations for the
-        given labels. If no labels are given, then all loaded models are considered. If
-        labels are given, only the matching models are considered. If independent_model
-        is given, then the result df gets another column where the predictions are
-        compared to the predictions of the independent model.
-        """
-        if labels is None:
-            if self._subpopulation_labels is None:
-                raise ValueError("Please provide model labels to create the dataframe")
-            logger.info(
-                "Labels not provided, generating the dataframe for all models..."
-            )
-            labels = self._subpopulation_labels
-        # Find the indices of matching models
-        lm_idxs = [self.subpopulation_labels.index(l) for l in labels]
-
-        # Only use n samples to make the prediction
-        random_idx = random.sample(
-            range(self.cluster_parameters_chain.shape[0]), n_samples_for_prediction
-        )
-        cluster_parameters_for_pred = self.cluster_parameters_chain[random_idx, :]
-
-        if for_t_stages is None:
-            for_t_stages = list(self.lymph_model.diag_time_dists)
-        else:
-            for_t_stages = as_list(for_t_stages)
-
-        obs_pred_df_for_labels = []
-        for i, l in zip(lm_idxs, labels):
-            logger.info(f"Computing for {l}")
-            obs_pred_df_for_labels.append(
-                create_obs_pred_df_single(
-                    cluster_parameters_for_pred,
-                    self.lymph_model,
-                    self.n_clusters,
-                    self.get_cluster_assignment_for_label(l),
-                    self.subpopulation_data[i],
-                    for_states,
-                    lnls,
-                    None,
-                )[0]
-            )
-
-        if independent_model is None:
-            data_df = [
-                item
-                for d in obs_pred_df_for_labels
-                for t_stage in for_t_stages
-                for item in [
-                    d[t_stage]["obs"],
-                    d[t_stage]["pred"],
-                    d[t_stage]["pred"] - d[t_stage]["obs"],
-                ]
-            ]
-
-        else:
-            # Very hacky, be cautions when using this.
-            logger.info(f"Computing for independent model{l}")
-            obs_pred_df_for_indp_model = _create_obs_pred_df_single(
-                independent_model_samples,
-                independent_model,
-                independent_model.patient_data,
-                for_states,
-                lnls,
-                None,
-                n_samples=50,
-            )[0]
-            data_df = [
-                item
-                for t_stage in for_t_stages
-                for d in [*obs_pred_df_for_labels, obs_pred_df_for_indp_model]
-                for item in [
-                    d[t_stage]["obs"],
-                    d[t_stage]["pred"],
-                    d[t_stage]["pred"] - d[t_stage]["obs"],
-                    obs_pred_df_for_indp_model[t_stage]["pred"] - d[t_stage]["obs"],
-                ]
-            ]
-
-        multiindex_lvl1 = for_t_stages
-        multiindex_lvl2 = list(labels)
-        multiindex_lvl3 = ["Observed", "Predicted", "Difference (MM)"]
-        if independent_model is not None:
-            multiindex_lvl3.append("Difference (Indp)")
-            multiindex_lvl2.append("Ind")
-
-        multiindex = pd.MultiIndex.from_product(
-            [multiindex_lvl1, multiindex_lvl2, multiindex_lvl3],
-            names=["T-Stage", "ICD", "Types"],
-        )
-
-        df = pd.DataFrame(data_df, index=multiindex)
-        df = df.round(2)
-        df.to_csv(self.predictions_dir.joinpath(Path(f"results_df_{save_name}.csv")))
-        logger.info(f"Succesfully created results dataframe in {self.predictions_dir}")
-        return df

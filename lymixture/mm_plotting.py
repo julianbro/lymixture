@@ -1,7 +1,7 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
 import corner
-from lyscripts.plot.utils import save_figure, get_size
+import matplotlib.pyplot as plt
+import seaborn as sns
+from lyscripts.plot.utils import get_size, save_figure
 
 
 def plot_cluster_assignments(

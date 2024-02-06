@@ -1,20 +1,19 @@
-import logging
-from cycler import cycler
-import pandas as pd
-import lymph
-import numpy as np
-import emcee
-import os
-from lyscripts.predict.prevalences import (
-    compute_observed_prevalence,
-)
-import matplotlib.colors as mcolors
-from pathlib import Path
-from scipy.special import factorial
 import itertools
-import scipy as sp
+import logging
+import os
+from pathlib import Path
+
+import emcee
+import lymph
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
-from lyscripts.sample import run_mcmc_with_burnin, DummyPool
+import numpy as np
+import pandas as pd
+import scipy as sp
+from cycler import cycler
+from lyscripts.predict.prevalences import compute_observed_prevalence
+from lyscripts.sample import DummyPool, run_mcmc_with_burnin
+from scipy.special import factorial
 
 # Plotting styles
 usz_blue = "#005ea8"

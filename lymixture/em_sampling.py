@@ -1,16 +1,17 @@
+import logging
+from typing import List, Optional
+
 import emcee
+import matplotlib.pyplot as plt
+import numpy as np
+from lyscripts.plot.utils import get_size, save_figure
+from matplotlib.ticker import MaxNLocator
+from scipy.optimize import minimize
 from tqdm import tqdm
 
-from typing import Optional, List
-import logging
-import numpy as np
-from scipy.optimize import minimize
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-
-from lyscripts.plot.utils import save_figure, get_size
 from lymixture.types import EMConfigType
 from lymixture.utils import sample_from_global_model_and_configs
+
 # from lyscripts.sample import sample_from_global_model_and_configs
 
 global MODELS, N_CLUSTERS

@@ -1,17 +1,14 @@
 import random
 from typing import Dict, Generator, List, Optional
 
-import pandas as pd
-import numpy as np
-from lyscripts.predict.risks import predicted_risk
-from lyscripts.predict.utils import complete_pattern
 import lymph
-from lyscripts.predict.prevalences import (
-    create_patient_row,
+import numpy as np
+import pandas as pd
+from lyscripts.predict.prevalences import (  # compute_predicted_prevalence_for_mixture,
     compute_observed_prevalence,
     generate_predicted_prevalences,
-    # compute_predicted_prevalence_for_mixture,
 )
+from lyscripts.predict.risks import predicted_risk
 
 # from lymixture.mixture_model import LymphMixtureModel
 

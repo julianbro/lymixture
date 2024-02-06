@@ -1,4 +1,4 @@
-from typing import TypedDict, Callable, Dict
+from typing import Callable, Dict, TypedDict
 
 
 class EStep(TypedDict):

@@ -1,20 +1,21 @@
 import random
 from typing import Dict, Generator, List, Optional
+
+import pandas as pd
+import numpy as np
+from lyscripts.predict.risks import predicted_risk
+from lyscripts.predict.utils import complete_pattern
 import lymph
 from lyscripts.predict.prevalences import (
     create_patient_row,
     compute_observed_prevalence,
-    compute_predicted_prevalence,
     generate_predicted_prevalences,
-    compute_predicted_prevalence_for_mixture,
+    # compute_predicted_prevalence_for_mixture,
 )
-from lyscripts.predict.risks import predicted_risk
 
-import pandas as pd
-import numpy as np
+# from lymixture.mixture_model import LymphMixtureModel
 
 ## Prevalences
-
 
 def mm_generate_predicted_prevalences(
     cluster_assignments: np.ndarray,
@@ -94,7 +95,10 @@ def mm_predicted_risk(
 def _create_obs_pred_df_single(
     samples, model, data, patterns, lnls, save_name=None, n_samples=100
 ):
-    """Messy function which creates a dataframe comparing observed / predictions. Also returns object which can be used for histogram plots."""
+    """
+    Messy function which creates a dataframe comparing observed / predictions. Also
+    returns object which can be used for histogram plots.
+    """
     random_idx = random.sample(range(samples.shape[0]), n_samples)
     samples_to_use = [samples[i, :] for i in random_idx]
     obs_prev = {}
@@ -118,7 +122,7 @@ def _create_obs_pred_df_single(
                 t_stage=t_stage,
                 lnls=lnls,
             )
-            # print(f"{loc}: Observed P({lnl}) = {round(op[0]/op[1], 2)} ({op})")
+            # logger.info(f"{loc}: Observed P({lnl}) = {round(op[0]/op[1], 2)} ({op})")
             pp_list = list(
                 generate_predicted_prevalences(
                     pattern={"ipsi": pattern},
@@ -142,7 +146,7 @@ def _create_obs_pred_df_single(
                 "t": op[1],
             }
 
-            # print(f"{loc}: Predicted P({lnl}) = {round(pp_list.mean(), 2)}")
+            # logger.info(f"{loc}: Predicted P({lnl}) = {round(pp_list.mean(), 2)}")
         obs_prev[t_stage] = obs_prev_t
         pred_prev[t_stage] = pred_prev_t
         pred_prev_std[t_stage] = pred_prev_std_t
@@ -186,68 +190,63 @@ def _create_obs_pred_df_single(
     return df, [obs_prev, pred_prev, pred_prev_std, pred_prev_list]
 
 
-def generate_predicted_prevalences_for_mixture(
-    pattern: Dict[str, Dict[str, bool]],
-    model: lymph.models.Unilateral,
-    n_clusters: int,
-    cluster_assignment: np.ndarray,
-    samples: np.ndarray,
-    t_stage: str = "early",
-    modality_spsn: Optional[List[float]] = None,
-    invert: bool = False,
-    **_kwargs,
-) -> Generator[float, None, None]:
-    """Compute the prevalence of a given `pattern` of lymphatic progression using a
-    `model` and trained `samples`.
+# def generate_predicted_prevalences_for_mixture(
+#     pattern: Dict[str, Dict[str, bool]],
+#     model: lymph.models.Unilateral,
+#     n_clusters: int,
+#     cluster_assignment: np.ndarray,
+#     samples: np.ndarray,
+#     t_stage: str = "early",
+#     modality_spsn: Optional[List[float]] = None,
+#     invert: bool = False,
+#     **_kwargs,
+# ) -> Generator[float, None, None]:
+#     """Compute the prevalence of a given `pattern` of lymphatic progression using a
+#     `model` and trained `samples`.
 
-    Do this computation for the specified `t_stage` and whether or not the tumor has
-    a `midline_ext`. `modality_spsn` defines the values for specificity & sensitivity
-    of the diagnostic modality for which the prevalence is to be computed. Default is
-    a value of 1 for both.
+#     Do this computation for the specified `t_stage` and whether or not the tumor has
+#     a `midline_ext`. `modality_spsn` defines the values for specificity & sensitivity
+#     of the diagnostic modality for which the prevalence is to be computed. Default is
+#     a value of 1 for both.
 
-    Use `invert` to compute 1 - p.
-    """
-    from core.mixture_model import LymphMixtureModel
-    from lyscripts.utils import get_lnls
-    from lyscripts.predict.utils import complete_pattern
+#     Use `invert` to compute 1 - p.
+#     """
+#     lnls = list(model.graph.lnls.keys())
+#     pattern = complete_pattern(pattern, lnls)
 
-    lnls = get_lnls(model)
-    pattern = complete_pattern(pattern, lnls)
+#     if modality_spsn is None:
+#         modality_spsn = [1., 1.]
 
-    if modality_spsn is None:
-        model.modalities = {"max_llh": [1.0, 1.0]}
-    else:
-        model.modalities = {"max_llh": modality_spsn}
+#     model.modalities = {"max_llh": modality_spsn}
 
-    is_unilateral = isinstance(model, lymph.models.Unilateral)
-    if not is_unilateral:
-        raise NotImplementedError()
-    patient_row = create_patient_row(
-        pattern,
-        t_stage,
-        False,
-        make_unilateral=is_unilateral,
-        default_index=False,
-    )
-    if t_stage in ["early", "late"]:
-        mapping = None
-    else:
-        mapping = lambda x: "all"
+#     if not isinstance(model, lymph.models.Unilateral):
+#         raise NotImplementedError()
 
-    # Create an instance of the mixture model
-    lmm = LymphMixtureModel(model, n_clusters=n_clusters, n_subpopulation=1)
-    # assign the cluster assignment to the model.
-    lmm.cluster_assignments = cluster_assignment[:-1]
-    # load the patient row data
-    lmm.load_data([patient_row], mapping=mapping)
+#     patient_row = create_patient_row(
+#         pattern,
+#         t_stage,
+#         False,
+#         make_unilateral=True,
+#     )
+#     if t_stage in ["early", "late"]:
+#         mapping = None
+#     else:
+#         mapping = lambda x: "all"
 
-    # compute prevalence as likelihood of diagnose `prev`, which was defined above
-    for sample in samples:
-        prevalence = compute_predicted_prevalence_for_mixture(
-            loaded_mixture_model=lmm,
-            given_params=sample,
-        )
-        yield (1.0 - prevalence) if invert else prevalence
+#     # Create an instance of the mixture model
+#     lmm = LymphMixtureModel(model, n_clusters=n_clusters, n_subpopulation=1)
+#     # assign the cluster assignment to the model.
+#     lmm.cluster_assignments = cluster_assignment[:-1]
+#     # load the patient row data
+#     lmm.load_data([patient_row], mapping=mapping)
+
+#     # compute prevalence as likelihood of diagnose `prev`, which was defined above
+#     for sample in samples:
+#         prevalence = compute_predicted_prevalence_for_mixture(
+#             loaded_mixture_model=lmm,
+#             given_params=sample,
+#         )
+#         yield (1.0 - prevalence) if invert else prevalence
 
 
 def create_obs_pred_df_single(
@@ -349,4 +348,3 @@ def create_obs_pred_df_single(
     if save_name:
         df.to_csv(save_name)
     return df, df_dict
-

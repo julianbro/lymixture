@@ -1,19 +1,17 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
 import corner
-from core.utils import set_size
-from lyscripts.plot.utils import save_figure
+from lyscripts.plot.utils import save_figure, get_size
 
 
 def plot_cluster_assignments(
     assignment_matrix, labels=None, save_dir=None, logger=None
 ):
     # Assuming assignment_matrix is a 2D array with shape (n_models, n_clusters)
-    fig, ax = plt.subplots(1, figsize=set_size(width="full"))
+    fig, ax = plt.subplots(1, figsize=get_size(width="full"))
     sns.heatmap(assignment_matrix, annot=True, cmap="viridis", ax=ax)
     ax.set_ylabel("Models")
     ax.set_xlabel("Clusters")
-
     ax.set_yticklabels(labels)
 
     if save_dir is not None:
@@ -31,7 +29,6 @@ def plot_cluster_parameters(
 ):
     """
     Creates individual corner plots for each cluster using the cluster parameters.
-
     """
     # Separate the parameters for each cluster
     cluster_params_grouped = [

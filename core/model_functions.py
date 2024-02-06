@@ -1,7 +1,7 @@
 from typing import List
+
 import numpy as np
 import pandas as pd
-from typing import List
 
 import lymph
 
@@ -9,7 +9,11 @@ import lymph
 def create_diagnose_matrices(
     data: List[pd.DataFrame], lymph_model: lymph.models.Unilateral, **kwargs
 ) -> List[np.ndarray]:
-    """Creates the diagnose matrices for each subsite S, given the data, the model, and data loading parameters. Returns a list with S elements, for each subpopulation S a list with tau arrays of shape (2^V, n_patients)."""
+    """
+    Creates the diagnose matrices for each subsite S, given the data, the model, and
+    data loading parameters. Returns a list with S elements, for each subpopulation S
+    a list with tau arrays of shape (2^V, n_patients).
+    """
     DS_list = []
     for d in data:
         lymph_model.load_patient_data(d, **kwargs)
@@ -21,7 +25,10 @@ def create_diagnose_matrices(
 
 
 def create_DS_list_from_models(models: List[lymph.models.Unilateral]):
-    """Creates the diagnose matrices for each subsite S, given lymph models with loaded data. Returns a list of S arrays with shape (tau, 2^V, n_patients)."""
+    """
+    Creates the diagnose matrices for each subsite S, given lymph models with loaded
+    data. Returns a list of S arrays with shape (tau, 2^V, n_patients).
+    """
     DS = []
     for m in models:
         DS.append(np.array([m.diagnose_matrices[t_stage] for t_stage in m.t_stages]))
@@ -29,7 +36,10 @@ def create_DS_list_from_models(models: List[lymph.models.Unilateral]):
 
 
 def compute_cluster_assignment_matrix(cluster_assignments, n_S, n_K):
-    """returns the PI matrix with shape (S, K) containing the cluster assignment for each subsite S to cluster K. Return np.ndarray with shape (S, K)"""
+    """
+    returns the PI matrix with shape (S, K) containing the cluster assignment for each
+    subsite S to cluster K. Return np.ndarray with shape (S, K)
+    """
     PI = np.zeros(shape=(n_S, n_K))
     for s in range(n_S):
         ca = cluster_assignments[s * (n_K - 1) : (s + 1) * (n_K - 1)]
@@ -42,7 +52,10 @@ def compute_cluster_state_probabilty_matrices(
     k_model,
     n_clusters,
 ):
-    """Generates a np.array with shape (K, t , 2^V) containing all 2^V state probabilitiy matrices for each t_stage t and cluster K"""
+    """
+    Generates a np.array with shape (K, t , 2^V) containing all 2^V state probabilitiy
+    matrices for each t_stage t and cluster K
+    """
     n_V = len(k_model.state_list)
     n_K = n_clusters
     n_t = len(list(k_model.t_stages))
@@ -56,25 +69,14 @@ def compute_cluster_state_probabilty_matrices(
     return mu_sum
 
 
-# def compute_SP_matrices(cluster_params, k_models, t_stages):
-#     """Generates a np.array with shape (K, t , 2^V) containing all 2^V state probabilitiy matrices for each t_stage t and cluster K"""
-#     n_V = len(k_models[0].state_list)
-#     n_K = len(k_models)
-#     n_t = len(t_stages)
-#     mu_sum = np.zeros(shape=(n_K, n_t, n_V))
-#     n_p = len(k_models[0].get_params())
-#     for k, m in enumerate(k_models):
-#         m.assign_params(*cluster_params[k * n_p : (k + 1) * n_p])
-#         evolved_model = m.comp_dist_evolution()
-#         for t, t_stage in enumerate(t_stages):
-#             mu_sum[k][t] = m.diag_time_dists[t_stage].distribution @ evolved_model
-#     return mu_sum
-
-
 def compute_state_probability_matrices(
-    cluster_assignment_matrix, cluster_state_probabilty_matrices
+    cluster_assignment_matrix,
+    cluster_state_probabilty_matrices
 ):
-    """computes the :math:`\Kappa` matrices for each subsite S and t_stage tau. Generates an np.ndarray with shape (S, tau, 2^V)"""
+    """
+    computes the :math:`\Kappa` matrices for each subsite S and t_stage tau. Generates
+    an np.ndarray with shape (S, tau, 2^V)
+    """
     return np.einsum(
         "sk,ktv->stv", cluster_assignment_matrix, cluster_state_probabilty_matrices
     )

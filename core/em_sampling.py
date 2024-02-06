@@ -1,23 +1,17 @@
-from locale import currency
-from pathlib import Path
 import emcee
 from tqdm import tqdm
 
-# from mixture_model import LymphMixtureModel
-import lymph
-from typing import Optional, TypedDict, List, Union
+from typing import Optional, List
 import logging
 import numpy as np
-import multiprocess as mp
-import os
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-from lyscripts.plot.utils import save_figure
-from core.utils import set_size
-from core.types import EMConfigType
-from lyscripts.sample import sample_from_global_model_and_configs
+from lyscripts.plot.utils import save_figure, get_size
+from lymixture.types import EMConfigType
+from lymixture.utils import sample_from_global_model_and_configs
+# from lyscripts.sample import sample_from_global_model_and_configs
 
 global MODELS, N_CLUSTERS
 
@@ -30,52 +24,41 @@ def emcee_simple_sampler(
     sampling_params: dict,
     hdf5_backend: Optional[emcee.backends.HDFBackend] = None,
     starting_point: Optional[np.ndarray] = None,
-    save_dir: Optional[Path] = None,
     llh_args: Optional[List] = None,
-    models: Optional[List] = None,
     show_progress=True,
-    logger=None,
 ):
     """A simple sampler."""
     nwalkers = sampling_params["walkers_per_dim"] * ndim
     burnin = sampling_params["nburnin"]
     nstep = sampling_params["nsteps"]
-    # thin_by = 1
 
-    created_pool = mp.Pool(os.cpu_count())
-    with created_pool as pool:
-        if starting_point is None:
-            starting_point = np.random.uniform(size=(nwalkers, ndim)) / 10
-        else:
-            if np.shape(starting_point) != np.shape(
-                np.random.uniform(size=(nwalkers, ndim))
-            ):
-                starting_point = np.tile(starting_point, (nwalkers, 1))
+    if starting_point is None:
+        starting_point = np.random.uniform(size=(nwalkers, ndim)) / 10
+    else:
+        if np.shape(starting_point) != np.shape(
+            np.random.uniform(size=(nwalkers, ndim))
+        ):
+            starting_point = np.tile(starting_point, (nwalkers, 1))
 
-        original_sampler_mp = emcee.EnsembleSampler(
-            nwalkers,
-            ndim,
-            log_prob_fn,
-            args=llh_args,
-            backend=hdf5_backend,
-            pool=None,
-        )
-        sampling_results = original_sampler_mp.run_mcmc(
-            initial_state=starting_point,
-            nsteps=nstep + burnin,
-            progress=show_progress,
-        )
+    original_sampler_mp = emcee.EnsembleSampler(
+        nwalkers,
+        ndim,
+        log_prob_fn,
+        args=llh_args,
+        backend=hdf5_backend,
+    )
+    sampling_results = original_sampler_mp.run_mcmc(
+        initial_state=starting_point,
+        nsteps=nstep + burnin,
+        progress=show_progress,
+    )
 
     ar = np.mean(original_sampler_mp.acceptance_fraction)
-    if logger:
-        logger.debug(f"Accepted {ar * 100 :.2f} % of samples.")
-    else:
-        print(f"Accepted {ar * 100 :.2f} % of samples.")
+    logger.info(f"Accepted {ar * 100 :.2f} % of samples.")
     samples = original_sampler_mp.get_chain(flat=True, discard=burnin)
     log_probs = original_sampler_mp.get_log_prob(flat=True)
     end_point = original_sampler_mp.get_last_sample()[0]
-    # if save_dir is not None:
-    #     np.save(save_dir, samples)
+
     return samples, end_point, log_probs
 
 
@@ -90,22 +73,21 @@ def exceed_param_bound(p: np.ndarray) -> bool:
 def draw_m_imputations(posterior: np.ndarray, m: int) -> List[np.ndarray]:
     """
     A function which handles the logic of sampling from the posterior.
-    When m is 1, simply take the mode of the posterior. Whem m is larger than 1, sample from the posterior.
+    When m is 1, simply take the mode of the posterior. Whem m is larger than 1, sample
+    from the posterior.
     """
     if m == 1:
         return [np.mean(posterior, axis=0)]
-    else:
-        return [
-            posterior[idx]
-            for idx in np.random.choice(posterior.shape[0], m, replace=False)
-        ]
+
+    return [
+        posterior[idx]
+        for idx in np.random.choice(posterior.shape[0], m, replace=False)
+    ]
 
 
 def boundary_condition_cluster_assignments(cluster_assignments):
     n_k = LMM.n_clusters
     for s in range(LMM.n_subpopulation):
-        # print(cluster_assignments[s * (n_k - 1) : s + 1 * (n_k - 1)])
-        # print(sum(cluster_assignments[s * (n_k - 1) : s + 1 * (n_k - 1)]))
         if sum(cluster_assignments[s * (n_k - 1) : (s + 1) * (n_k - 1)]) >= 1:
             return True
 
@@ -117,7 +99,7 @@ def log_ll_cl_assignments(cluster_assignments):
         cluster_assignments
     ) or boundary_condition_cluster_assignments(cluster_assignments):
         return -np.inf
-    # print(cluster_assignments)
+
     llh = LMM.mm_hmm_likelihood(cluster_assignments=cluster_assignments)
     if np.isinf(llh):
         return -np.inf
@@ -173,15 +155,9 @@ class ExpectationMaximization:
     ):
         """Class which implements the EM Algorithm.
 
-        Note: We need an instance of the Mixture Model, since the implementations of the likelihood function are in the Mixture Model.
+        Note: We need an instance of the Mixture Model, since the implementations of
+        the likelihood function are in the Mixture Model.
         """
-        from mixture_model import LymphMixtureModel
-
-        lmm: LymphMixtureModel = lmm
-
-        # Initialize logger
-        self._setup_logger()
-
         # Get an instance of the Lymph Mixture Model and set it as a global variable
         global LMM
         self.lmm = lmm
@@ -215,28 +191,20 @@ class ExpectationMaximization:
             self.current_cluster_parameters, self.current_cluster_assignments
         )
 
-        self.em_dir = lmm.base_dir / "EM"
-        self.em_dir.mkdir(parents=True, exist_ok=True)
-
-    def _setup_logger(self):
-        """
-        Sets up the logger for the class.
-        """
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
 
     def mcmc_sampling(self, log_prob_fn, ndim, llh_args=None, initial_guess=None):
-        """Uses MCMC sampling to estimate the density of the given function. Returns the posterior chain and the log likelihoods."""
+        """
+        Uses MCMC sampling to estimate the density of the given function. Returns
+        the posterior chain and the log likelihoods.
+        """
         if self.em_config["e_step"]["sampler"] == "SIMPLE":
             sample_chain, end_point, log_probs = emcee_simple_sampler(
                 log_prob_fn,
                 ndim=ndim,
                 sampling_params=self.em_config["e_step"],
                 starting_point=initial_guess,
-                save_dir=self.em_dir,
                 show_progress=self.em_config["e_step"]["show_progress"]
                 & self.em_config["verbose"],
-                logger=self.logger,
                 llh_args=llh_args,
             )
         else:
@@ -245,14 +213,13 @@ class ExpectationMaximization:
                 ndim,
                 sampling_params=self.em_config["e_step"],
                 starting_point=initial_guess,
-                save_dir=self.em_dir,
                 models=LMM,
-                llh_args=llh_args,
                 verbose=self.em_config["e_step"]["show_progress"]
                 & self.em_config["verbose"],
             )
         self.emcee_end_point = end_point
         return sample_chain, log_probs
+
 
     def maximize_estimation(self, maximize_fn, ndim, llh_args=None, initial_guess=None):
         """Returns the maximizer of the function given."""
@@ -273,6 +240,7 @@ class ExpectationMaximization:
         self.maximizer_end_point = maximizer
         max_llh = -res.fun
         return maximizer, max_llh
+
 
     def init_run_em(self):
         """Initializes objects needed for runnning the EM algortihm."""
@@ -310,15 +278,11 @@ class ExpectationMaximization:
             self.convergence.get_initial_values(),
         )
 
+
     def run_em(self):
-        logger.info(
-            f"Run EM algorithm with method {self.em_config['method']} for max {self.max_steps} steps."
-        )
+        logger.info(f"Run EM with method {self.em_config['method']} for max {self.max_steps} steps.")
         self.init_run_em()
 
-        # Show additional information if verbose is set to true.
-        if self.em_config["verbose"]:
-            self.logger.setLevel(logging.DEBUG)
         # Run the EM algorithm.
         for iteration in tqdm(range(self.max_steps), desc="EM Algorithm Progress"):
             if self.em_config["method"] == "DEFAULT":
@@ -341,9 +305,6 @@ class ExpectationMaximization:
                 self.convergence.current_convergence_values,
             )
 
-            # Store the history object in each round
-            self.history.save(save_dir=self.em_dir)
-
             if converged:
                 logger.info(f"Step {self.current_step} / {self.max_steps}: Converged!")
                 break
@@ -351,14 +312,13 @@ class ExpectationMaximization:
             self.current_step = iteration
 
         if not converged:
-            logger.warning(
-                f"Max steps reached without convergence, return current approximation."
-            )
+            logger.info("Max steps reached, no convergence, return current approximation.")
 
         return self.current_cluster_assignments, self.history
 
+
     def e_step(self):
-        self.logger.debug(f"Step {self.current_step}: Perform expectation.")
+        logger.info(f"Step {self.current_step}: Perform expectation.")
         # Set the cluster parameters to the current estimates.
         self.lmm.cluster_parameters = self.current_cluster_parameters
         # self.lmm.diagnose_matrices
@@ -373,11 +333,12 @@ class ExpectationMaximization:
             self.lmm.n_cluster_assignments,
             initial_guess=self.emcee_end_point,
         )
-        # print(cluster_assignments_posterior)
+        # logger.info(cluster_assignments_posterior)
         # raise
         self.current_cluster_assignments = cluster_assignments_posterior.mean(axis=0)
         self.current_cluster_assignments_posterior = cluster_assignments_posterior
-        logger.debug(f"Expectation yields: {self.current_cluster_assignments}")
+        logger.info(f"Expectation yields: {self.current_cluster_assignments}")
+
 
     def m_step(self):
         """
@@ -385,8 +346,7 @@ class ExpectationMaximization:
         This means it takes imputations from the cluster assignment posterior,
         and returns the cluster parameters which maximize the likelihood over all imputations.
         """
-        self.logger.debug(f"Step {self.current_step}: Perform maximation.")
-
+        logger.info(f"Step {self.current_step}: Perform maximation.")
         log_prob_fn = log_ll_cl_parameters_multiple_assignments
 
         # Draw m imputations from the estimated posterior of the cluster assignments
@@ -395,9 +355,7 @@ class ExpectationMaximization:
             self.em_config["m_step"]["imputation_function"](self.current_step),
         )
 
-        self.logger.debug(
-            f"Number of imputations: {len(cluster_assignment_imputations)}"
-        )
+        logger.info(f"Number of imputations: {len(cluster_assignment_imputations)}")
         cluster_parameter_proposal, max_llh = self.maximize_estimation(
             log_prob_fn,
             self.lmm.n_cluster_parameters,
@@ -407,16 +365,17 @@ class ExpectationMaximization:
 
         self.current_cluster_parameters = cluster_parameter_proposal
         self.current_likelihood = max_llh
-        logger.debug(f"Maximation yields: {self.current_cluster_parameters}")
+        logger.info(f"Maximation yields: {self.current_cluster_parameters}")
+
 
     def e_step_sampling_cluster_parameters(self):
-        """This implements the E-Step of the EM algorithm in the 'inverted' method, where we sample for the cluster parameters given the current cluster assignments."""
-        self.logger.debug(f"Step {self.current_step}: Perform expectation.")
+        """
+        This implements the E-Step of the EM algorithm in the 'inverted' method, where
+        we sample for the cluster parameters given the current cluster assignments.
+        """
+        logger.info(f"Step {self.current_step}: Perform expectation.")
         # Set the cluster parameters to the current estimates. This triggers recomputation of the matrices.
         self.lmm.cluster_assignments = self.current_cluster_assignments
-        # self.lmm.diagnose_matrices
-
-        # show_progress = self.em_config["e_step"]["show_progress"]
 
         log_prob_fn = log_ll_cl_parameters
 
@@ -431,11 +390,14 @@ class ExpectationMaximization:
         self.current_cluster_parameters_posterior = cluster_parameters_posterior
         logger.info(f"Expectation yields: {self.current_cluster_parameters}")
 
+
     def m_step_sampling_cluster_assignments(self):
         """
-        This implements the M-Step of the EM algorithm in the 'inverted' method, where we sample m imputations from the cl parameter posterior and find the cluster assignments which maximize the Q-function.
+        This implements the M-Step of the EM algorithm in the 'inverted' method, where
+        we sample m imputations from the cl parameter posterior and find the cluster
+        assignments which maximize the Q-function.
         """
-        self.logger.info(f"Step {self.current_step}: Perform maximation.")
+        logger.info(f"Step {self.current_step}: Perform maximation.")
 
         log_prob_fn = log_ll_cl_assignments_multiple_parameters
 
@@ -451,40 +413,38 @@ class ExpectationMaximization:
             llh_args=[cluster_parameter_imputations],
             initial_guess=self.maximizer_end_point,
         )
-        print(max_llh)
         self.current_cluster_assignments = cluster_assignment_proposal
         self.current_likelihood = max_llh
         logger.info(f"Maximation yields: {self.current_cluster_assignments}")
 
+
     @staticmethod
     def default_em_config() -> EMConfigType:
-        default_config: EMConfigType = (
-            {
-                "max_steps": 15,
-                "method": "DEFAULT",
-                "e_step": {
-                    "walkers_per_dim": 20,
-                    "nsteps": 50,
-                    "nburnin": 20,
-                    "sampler": "SIMPLE",
-                    "show_progress": True,
-                },
-                "m_step": {
-                    "minimize_method": "SLSQP",
-                    "imputation_function": lambda x: int(5 / (10) * x + 1),
-                },
-                "convergence": {
-                    "criterion": "default",
-                    "default": {"lookback_period": 3, "threshold": 0.010},
-                },
+        return {
+            "max_steps": 15,
+            "method": "DEFAULT",
+            "e_step": {
+                "walkers_per_dim": 20,
+                "nsteps": 50,
+                "nburnin": 20,
+                "sampler": "SIMPLE",
+                "show_progress": True,
             },
-        )
+            "m_step": {
+                "minimize_method": "SLSQP",
+                "imputation_function": lambda x: int(5 / (10) * x + 1),
+            },
+            "convergence": {
+                "criterion": "default",
+                "default": {"lookback_period": 3, "threshold": 0.010},
+            },
+        }
 
-        return default_config[0]
 
     def set_em_config(self, new_config):
         for k, v in new_config.items():
             self.em_config[k] = v
+
 
     def likelihood(self, cluster_parameters=None, cluster_assignment=None):
         # Access the likelihood function from LMM
@@ -496,22 +456,23 @@ def reduce_to_1_dim(v: np.ndarray):
     if v.ndim == 1:
         # If it's already one-dimensional, return it as is
         return v
-    else:
-        # Compute the mean along all dimensions and return a one-dimensional array with shape (2)
-        return np.mean(v, axis=0)
+
+    # Compute the mean along all dimensions and return a one-dimensional array with shape (2)
+    return np.mean(v, axis=0)
 
 
 class History:
     """
-    Class which holds information about the history along the convergence process of the EM-algorithm.
-    The class holds 4 different values: likelihood, cluster assignments, cluster parameters, and convergence values.
+    Class which holds information about the history along the convergence process of
+    the EM-algorithm. The class holds 4 different values: likelihood, cluster
+    assignments, cluster parameters, and convergence values.
     """
-
     def __init__(self):
         self.cluster_assignments = []
         self.cluster_parameters = []
         self.likelihood = []
         self.convergence_value = []
+
 
     def add_entry(
         self, cluster_assignments, cluster_parameters, likelihood, conv_values
@@ -521,6 +482,7 @@ class History:
         self.cluster_parameters.append(cluster_parameters),
         self.likelihood.append(likelihood)
         self.convergence_value.append(conv_values)
+
 
     def save(self, save_dir):
         """Build a history dict and save the dictionary."""
@@ -532,13 +494,15 @@ class History:
         }
         np.save(save_dir / "history", obj)
 
+
     def get_entries(self):
         return self.entries
+
 
     def plot_history(
         self, labels_subpopulation, parameter_labels, n_clusters, save_dir
     ):
-        fig, axs = plt.subplots(2, 2, figsize=set_size(width="full"))
+        fig, axs = plt.subplots(2, 2, figsize=get_size(width="full"))
         plt.rcParams.update({"font.size": 8})  # Adjust font size
 
         # Likelihood Plot
@@ -589,11 +553,11 @@ class History:
         ax = axs[1, 1]
         label_ts = ["theta", "pi", "llh"]
 
-        for i in range(0, len(label_ts)):
+        for i, label in enumerate(label_ts):
             ax.plot(
                 range(len(self.convergence_value)),
                 [v[i] for v in self.convergence_value],
-                label=label_ts[i],
+                label=label,
             )
         ax.set_xlabel("Steps")
         ax.set_ylabel("Convergence Values")
@@ -601,18 +565,17 @@ class History:
         ax.legend(
             loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize="small"
         )
-
         fig.tight_layout()
 
         if save_dir is not None:
-            save_figure(
-                save_dir / f"history_em", fig, formats=["png", "svg"], logger=logger
-            )
+            save_figure(save_dir/f"history_em", fig, formats=["png", "svg"])
 
 
 class Convergence:
-    """Class which handles the convergence of the EM algorithm. The idea is one can define different 'convergence checker' using the criterion keyword."""
-
+    """
+    Class which handles the convergence of the EM algorithm. The idea is one can define
+    different 'convergence checker' using the criterion keyword.
+    """
     def __init__(self, config, criterion="default"):
         self.criterion = criterion
         self.config = config
@@ -628,7 +591,9 @@ class Convergence:
         elif self.criterion == "posterior_quantiles":
             self.params = {"distribution": []}
             raise NotImplementedError()
+
         self.current_convergence_values = None
+
 
     def update(self, instance):
         # Update the convergence-related data
@@ -641,16 +606,17 @@ class Convergence:
             )
             self.params["likelihood"].append(instance.current_likelihood)
 
-            #
 
     def get_initial_values(self):
         """Returns initial values for the given criterion."""
         if self.criterion == "default":
             return [1, 1, 1]
 
+
     def get_current_values(self):
         """Simply returns the current convergence values."""
         return self.current_convergence_values
+
 
     def check(self):
         # Implement the logic to check for convergence
@@ -660,32 +626,30 @@ class Convergence:
 
         return False
 
-    def default_convergence_check(self):
-        """checks that neither of the cluster assignment, cluster parameters, and likelihoods change more than a threshold value over the last n steps."""
-        force_fail = False
 
+    def default_convergence_check(self):
+        """
+        checks that neither of the cluster assignment, cluster parameters, and
+        likelihoods change more than a threshold value over the last n steps.
+        """
         convergence_values = []
         lookback = self.config["default"]["lookback_period"]
         threshold = self.config["default"]["threshold"]
 
-        # Check that cluster parameters are not changing more than a ths over the last steps
+        # Check that cluster parameters are not changing too much
         lookback_cl_parameters = np.array(self.params["cluster_parameters"][-lookback:])
         cluster_parameters_change = np.abs(
             (lookback_cl_parameters - lookback_cl_parameters.mean(axis=0))
         )
-        # print(lookback_cl_parameters)
-        # print(f"mean: {lookback_cl_parameters.mean(axis=0)}")
-        # print(f"change: {cluster_parameters_change}")
-        # print(f"check: {cluster_parameters_change < threshold}")
-        # print(cluster_parameters_change.max())
         convergence_check_cl_parameters = np.all(cluster_parameters_change < threshold)
 
+        # TODO: Ask for expected exception
         try:
             convergence_values.append(cluster_parameters_change.max())
         except:
             convergence_values.append(1)
 
-        # Check that cluster assignments are not changing more than a ths over the last steps
+        # Check that cluster assignments are not changing too much
         lookback_cl_assignments = np.array(
             self.params["cluster_assignments"][-lookback:]
         )
@@ -701,7 +665,7 @@ class Convergence:
         except:
             convergence_values.append(1)
 
-        # Check that likelihood is not changing more than a ths over the last steps
+        # Check that likelihood is not changing too much
         lookback_llhs = np.array(self.params["likelihood"][-lookback:])
         likelihood_change = np.abs(np.diff(lookback_llhs) / lookback_llhs[1:])
         convergence_check_llh = np.all(likelihood_change < threshold)

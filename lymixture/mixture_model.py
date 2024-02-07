@@ -51,6 +51,8 @@ def log_ll_cl_parameters(cluster_parameters):
 
 class LymphMixtureModel:
     """Class that handles the individual components of the mixture model."""
+    components: list[lymph.models.Unilateral]
+    subgroups: dict[str, lymph.models.Unilateral]
 
     def __init__(
         self,
@@ -60,8 +62,8 @@ class LymphMixtureModel:
     ):
         """Initialize the mixture model.
 
-        The mixture will be based on the given `model_cls` (which is instantiated with
-        the `model_kwargs`), and will have `num_components`.
+        The mixture will be based on the given ``model_cls`` (which is instantiated with
+        the ``model_kwargs``), and will have ``num_components``.
         """
         if model_kwargs is None:
             model_kwargs = {}
@@ -71,15 +73,27 @@ class LymphMixtureModel:
                 "Mixture model only implemented for `Unilateral` model."
             )
 
-        self.lymph_model = model_cls(**model_kwargs)
-        self.num_components = num_components
+        self._model_cls = model_cls
+        self._model_kwargs = model_kwargs
+        self._init_components(num_components)
 
         self._compute_component_nums()
 
         logger.info(
             f"Created LymphMixtureModel based on {model_cls} model with "
-            f"{self.num_components} components."
+            f"{num_components} components."
         )
+
+    def _init_components(self, num_components: int):
+        """Initialize the component parameters and assignments."""
+        self.components = []
+        for _ in range(num_components):
+            self.components.append(self._model_cls(**self._model_kwargs))
+
+    @property
+    def num_components(self) -> int:
+        """The number of mixture components."""
+        return len(self.components)
 
     def _compute_component_nums(self):
         """(Re-)compute total number of model params and free assignment values."""
@@ -141,11 +155,6 @@ class LymphMixtureModel:
         )
 
     @property
-    def num_subgroups(self):
-        """The number of subgroups."""
-        return len(self.subgroup_datas)
-
-    @property
     def component_assignments(self):
         """The assignment of subgroups to mixture components."""
         return self._component_assignments
@@ -204,14 +213,20 @@ class LymphMixtureModel:
         :py:meth:`~lymph.models.Unilateral.load_patient_data` method.
         """
         grouped = patient_data.groupby(split_by)
-        self.subgroup_datas = [df for _, df in grouped]
-        self.subgroup_labels = [label for label, _ in grouped]
 
-        self.diagnose_matrices = list(gen_diagnose_matrices(
-            datasets=self.subgroup_datas,
-            lymph_model=self.lymph_model,
-            load_kwargs=kwargs,
-        ))
+        for label, data in grouped:
+            self.subgroups[label] = self._model_cls(**self._model_kwargs)
+            self.subgroups[label].load_patient_data(data, **kwargs)
+
+        self.diagnose_matrices = []
+        for model in self.subgroups.values():
+            for t_stage in model.t_stages:
+                self.diagnose_matrices.append(model.diagnose_matrices[t_stage])
+
+    @property
+    def num_subgroups(self) -> int:
+        """The number of subgroups."""
+        return len(self.subgroups)
 
     def _mm_hmm_likelihood(self, log: bool = True) -> float:
         """

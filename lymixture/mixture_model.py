@@ -1,9 +1,14 @@
+"""
+This module defines the class wrapping the base model and composing the mixture model
+likelihood from the components and subgroups in the data.
+"""
+# pylint: disable=logging-fstring-interpolation
+
 import logging
 import random
 from functools import cached_property
 from typing import Any
 
-import emcee
 import lymph
 import numpy as np
 import pandas as pd
@@ -27,22 +32,12 @@ from lymixture.model_functions import (
 )
 from lymixture.utils import sample_from_global_model_and_configs
 
-# pylint: disable=logging-fstring-interpolation
-
 
 logger = logging.getLogger(__name__)
 
 
 # Define a global variable which can be used within this module.
 global LMM_GLOBAL
-
-
-def get_param_labels(model):
-    """Get parameter labels from a model."""
-    return [
-        t.replace("primary", "T").replace("_spread", "")
-        for t in model.get_params(as_dict=True).keys()
-    ]
 
 
 def log_ll_cl_parameters(cluster_parameters):

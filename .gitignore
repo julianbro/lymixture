@@ -192,3 +192,6 @@ pyrightconfig.json
 
 # dynamically create version file
 */_version.py
+
+# VS Code
+.vscode/

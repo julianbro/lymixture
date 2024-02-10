@@ -116,6 +116,24 @@ def convert_params(params, n_clusters, n_subsites):
     return params_model, params_mixing
 
 
+def split_params_over_components(
+    params: dict[str, float],
+    num_components: int,
+) -> tuple[list[dict[str, float]], dict[str, float]]:
+    """Split the parameters into separate dictionaries for each component."""
+    params_dict_list = [{} for _ in range(num_components)]
+    global_params = {}
+
+    for key, value in params.items():
+        try:
+            idx, param_key = key.split("_", maxsplit=1)
+            params_dict_list[int(idx)][param_key] = value
+        except ValueError:   # occurs when no '_' in key OR when int(idx) fails
+            global_params[key] = value
+
+    return params_dict_list, global_params
+
+
 def emcee_sampling(llh_function, n_params, sample_name, llh_args=None):
     nwalkers, nstep, burnin = 20 * n_params, 1000, 1500
     thin_by = 1

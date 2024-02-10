@@ -50,8 +50,6 @@ def log_ll_cl_parameters(cluster_parameters):
 
 class LymphMixtureModel:
     """Class that handles the individual components of the mixture model."""
-    components: list[lymph.models.Unilateral]
-    subgroups: dict[str, lymph.models.Unilateral]
 
     def __init__(
         self,
@@ -74,9 +72,11 @@ class LymphMixtureModel:
 
         self._model_cls = model_cls
         self._model_kwargs = model_kwargs
-        self._init_components(num_components)
 
-        self._compute_component_nums()
+        self.components: list[self._model_cls] = []
+        self.subgroups: dict[str, self._model_cls] = {}
+
+        self._init_components(num_components)
 
         logger.info(
             f"Created LymphMixtureModel based on {model_cls} model with "
@@ -95,13 +95,6 @@ class LymphMixtureModel:
     def num_components(self) -> int:
         """The number of mixture components."""
         return len(self.components)
-
-
-    def _compute_component_nums(self):
-        """(Re-)compute total number of model params and free assignment values."""
-        num_model_params = len(self.lymph_model.get_params())
-        self.num_component_params = num_model_params * self.num_components
-        self.num_component_assignments = self.num_subgroups * (self.num_components - 1)
 
 
     @cached_property

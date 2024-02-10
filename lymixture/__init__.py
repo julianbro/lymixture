@@ -7,3 +7,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+
+from lymixture.mixture_model import LymphMixtureModel
+
+__all__ = ["LymphMixtureModel"]

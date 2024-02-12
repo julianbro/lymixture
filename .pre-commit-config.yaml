@@ -18,3 +18,7 @@ repos:
   - id: isort
     files: "\\.(py)$"
     args: [--settings-path=pyproject.toml]
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.7.1
+  hooks:
+  - id: nbstripout

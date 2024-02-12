@@ -4,45 +4,70 @@ Test the functionality of the mixture model class.
 import unittest
 from unittest import TestCase
 
+import numpy as np
+from fixtures import MixtureModelFixture
 from lymph.models import Unilateral
 
 from lymixture import LymphMixtureModel
 
-from fixtures import SIMPLE_SUBSITE, get_graph, get_patient_data
 
-
-class TestMixtureModel(TestCase):
+class TestMixtureModel(MixtureModelFixture, TestCase):
     """Unit test the mixture model class."""
 
     def setUp(self) -> None:
         """Create intermediate and helper objects for the tests."""
-        self.model_cls = Unilateral
-        self.num_components = 3
-        self.patient_data = get_patient_data()
-        self.graph_dict = get_graph(size="small")
+        self.setup_rng(seed=42)
+        self.setup_mixture_model(
+            model_cls=Unilateral,
+            num_components=3,
+            graph_size="small",
+            load_data=True,
+        )
+        self.setup_responsibilities()
         return super().setUp()
 
 
     def test_init(self):
         """Test the initialization of the mixture model."""
-        model = LymphMixtureModel(
-            model_cls=self.model_cls,
-            model_kwargs={"graph_dict": self.graph_dict},
-            num_components=self.num_components,
-        )
-        self.assertIsInstance(model, LymphMixtureModel)
-        self.assertEqual(model.num_components, self.num_components)
+        self.assertIsInstance(self.mixture_model, LymphMixtureModel)
+        self.assertEqual(self.mixture_model.num_components, self.num_components)
 
 
     def test_load_patient_data(self):
         """Test the loading of patient data."""
-        model = LymphMixtureModel(
-            model_cls=self.model_cls,
-            model_kwargs={"graph_dict": self.graph_dict},
-            num_components=self.num_components,
+        total_num_patients = 0
+        for subgroup in self.mixture_model.subgroups.values():
+            total_num_patients += len(subgroup.patient_data)
+
+        self.assertEqual(total_num_patients, len(self.patient_data))
+
+
+    def test_assign_responsibilities(self):
+        """Test the assignment of responsibilities."""
+        self.mixture_model.assign_responsibilities(self.resp)
+
+        stored_resp = np.empty(shape=(0, self.num_components))
+        for subgroup in self.mixture_model.subgroups.values():
+            self.assertIn("_mixture", subgroup.patient_data)
+            stored_resp = np.vstack([
+                stored_resp, subgroup.patient_data["_mixture"].to_numpy()
+            ])
+        np.testing.assert_array_equal(self.resp, stored_resp)
+        stored_resp = self.mixture_model.patient_data["_mixture"].to_numpy()
+        np.testing.assert_array_equal(self.resp, stored_resp)
+        stored_resp = self.mixture_model.get_responsibilities()
+        np.testing.assert_array_equal(self.resp, stored_resp)
+
+
+    def test_get_responsibilities(self):
+        """Test accessing the responsibilities."""
+        self.mixture_model.assign_responsibilities(self.resp)
+        p_idx = self.rng.integers(low=0, high=len(self.patient_data), size=1)
+        c_idx = self.rng.integers(low=0, high=self.num_components, size=1)
+        self.assertEqual(
+            self.resp[p_idx,c_idx],
+            self.mixture_model.get_responsibilities(patient=p_idx, component=c_idx)
         )
-        model.load_patient_data(self.patient_data, split_by=SIMPLE_SUBSITE)
-        self.assertTrue(False)
 
 
 if __name__ == "__main__":

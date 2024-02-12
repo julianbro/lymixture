@@ -7,7 +7,7 @@ likelihood from the components and subgroups in the data.
 import logging
 import random
 from functools import cached_property
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 import lymph
 import numpy as np
@@ -29,8 +29,11 @@ from lymixture.model_functions import (
     compute_cluster_state_probabilty_matrices,
     compute_state_probability_matrices,
 )
-from lymixture.utils import split_params_over_components, sample_from_global_model_and_configs
-
+from lymixture.utils import (
+    join_with_responsibilities,
+    sample_from_global_model_and_configs,
+    split_params_over_components,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +124,7 @@ class LymphMixtureModel:
                 "cluster assignments first."
             )
         return compute_cluster_assignment_matrix(
-            self.mixture_coefs, self.num_subgroups, self.num_components
+            self.mixture_coefs, len(self.subgroups), self.num_components
         )
 
 
@@ -133,52 +136,79 @@ class LymphMixtureModel:
         )
 
 
-    @property
-    def mixture_coefs(self):
-        """The assignment of subgroups to mixture components."""
-        return self._mixture_coefs
-
-
-    @mixture_coefs.setter
-    def mixture_coefs(self, value):
-        """Set new component assignments and delete the current cluster matrices.
-
-        Note that the model expects ``num_subgroups`` less parameters for the cluster
-        assignment due to the constraint that the cluster assignment of one subgroup
-        has to sum to 1.
-        """
-        if len(value) != self.num_component_assignments:
-            raise ValueError(
-                "Number of provided cluster assignments do not match the number of "
-                "cluster assignments expected by the model."
-            )
-        self._mixture_coefs = value
-
-        del self.cluster_assignment_matrix
-        del self.state_probability_matrices
-
-
     def get_mixture_coefs(
         self,
         subgroup: str | None = None,
         component: int | None = None,
-    ) -> pd.DataFrame:
-        """Get mixture coefficients for the given subgroup and component.
+    ) -> float | pd.Series | pd.DataFrame:
+        """Get mixture coefficients for the given ``subgroup`` and ``component``.
 
         The mixture coefficients are sliced by the given ``subgroup`` and ``component``
         which means that if no subgroupd and/or component is given, multiple mixture
         coefficients are returned.
         """
-        return self._mixture_coefs.loc[slice(component), slice(subgroup)]
+        if not hasattr(self, "_mixture_coefs"):
+            nan_array = np.empty((self.num_components, len(self.subgroups)))
+            nan_array[:] = np.nan
+            self._mixture_coefs = pd.DataFrame(
+                nan_array,
+                index=range(self.num_components),
+                columns=self.subgroups.keys(),
+            )
+
+        subgroup = slice(None) if subgroup is None else subgroup
+        component = slice(None) if component is None else component
+        return self._mixture_coefs.loc[component, subgroup]
 
 
-    def assign_mixture_coefs(self,  new_mixture_coefs: np.ndarray) -> None:
-        """Assign new mixture coefficients to the model."""
-        self._mixture_coefs = pd.DataFrame(
-            new_mixture_coefs,
-            index=range(self.num_components),
-            columns=self.subgroups.keys(),
-        )
+    def assign_mixture_coefs(
+        self,
+        new_mixture_coefs: float | np.ndarray,
+        subgroup: str | None = None,
+        component: int | None = None,
+    ) -> None:
+        """Assign new mixture coefficients to the model.
+
+        TODO: Finish this docstring.
+        """
+        if not hasattr(self, "_mixture_coefs"):
+            _ = self.get_mixture_coefs()
+
+        component = slice(None) if component is None else component
+        subgroup = slice(None) if subgroup is None else subgroup
+        self._mixture_coefs.loc[component, subgroup] = new_mixture_coefs
+
+
+    def get_component_params(
+        self,
+        param: str | None = None,
+        component: int | None = None,
+        as_dict: bool = True,
+        flatten: bool = False,
+    ) -> float | Iterable[float] | dict[str, float]:
+        """Get the spread parameters of the individual mixture component models.
+
+        If ``as_dict`` is ``True``...
+        TODO: Finish this docstring.
+        """
+        if component is not None:
+            return self.components[component].get_params(param=param, as_dict=as_dict)
+
+        if param is not None:
+            return [c.get_params(param=param) for c in self.components]
+
+        # TODO: Finish this implementation in a useful way
+        if flatten:
+            params = {
+                f"{c}_{k}": v
+                for c, p in enumerate(params)
+                for k, v in p.items()
+            }
+
+        if param is not None:
+            return params[param]
+
+        return params if as_dict else params.values()
 
 
     def assign_component_params(
@@ -226,16 +256,22 @@ class LymphMixtureModel:
         given subgroup.
         """
         if subgroup is not None:
-            resp = self.subgroups[subgroup].patient_data["_mixture", "responsibility"]
+            resp_table = self.subgroups[subgroup].patient_data["_mixture"]
         else:
-            resp = pd.concat([
-                model.patient_data["_mixture", "responsibility"]
-                for model in self.subgroups.values()
-            ])
-        return resp.loc[slice(patient), slice(component)]
+            resp_table = self.patient_data["_mixture"]
+
+        patient = slice(None) if patient is None else patient
+        component = slice(None) if component is None else component
+        return resp_table.to_numpy()[patient,component]
 
 
-    def assign_responsibilities(self, new_responsibilities: np.ndarray):
+    def assign_responsibilities(
+        self,
+        new_responsibilities: float | np.ndarray,
+        patient: int | None = None,
+        subgroup: str | None = None,
+        component: int | None = None,
+    ):
         """Assign responsibilities to the model.
 
         They should have the shape (num_patients, num_components) and summing them
@@ -245,50 +281,8 @@ class LymphMixtureModel:
         of the model if they are "hard", i.e. if they are either 0 or 1 and thus
         represent a one-hot encoding of the component assignments.
         """
-        if new_responsibilities.shape != (self.num_patients, self.num_components):
-            raise ValueError(
-                "Shape of responsibilities wrong. Expected "
-                f"({self.num_patients}, {self.num_components})"
-            )
-
-        summed = np.sum(new_responsibilities, axis=-1)
-        if not np.allclose(summed, np.ones(self.num_patients)):
-            raise ValueError("Repsonsibilities for each patient should sum to one.")
-
-        mixture_columns = pd.MultiIndex.from_tuples([
-            ("_mixture", "responsibility", i) for i in range(self.num_components)
-        ])
-        for model in self.subgroups.values():
-            subgroup_responsibilities = pd.DataFrame(
-                new_responsibilities[:len(model.patient_data)],
-                columns=mixture_columns,
-            )
-            new_responsibilities = new_responsibilities[len(model.patient_data):]
-            model.patient_data.join(subgroup_responsibilities)
-
-
-    @property
-    def component_params(self):
-        """The parameters of the individual mixture components."""
-        return self._component_params
-
-
-    @component_params.setter
-    def component_params(self, value):
-        """Set the component parameters.
-
-        This deletes the cluster state probability matrices and the state probability
-        matrices.
-        """
-        if len(value) != self.num_component_params:
-            raise ValueError(
-                "Number of provided cluster_parameters do not match the number of "
-                "cluster_parameters expected by the model."
-            )
-        self._component_params = value
-
-        del self.cluster_state_probabilty_matrices
-        del self.state_probability_matrices
+        # TODO: Implement the assignment of responsibilities
+        pass
 
 
     def load_patient_data(
@@ -308,24 +302,18 @@ class LymphMixtureModel:
 
         for label, data in grouped:
             self.subgroups[label] = self._model_cls(**self._model_kwargs)
+            data = join_with_responsibilities(
+                data, num_components=len(self.components)
+            )
             self.subgroups[label].load_patient_data(data, **kwargs)
 
-        self.diagnose_matrices = []
-        for model in self.subgroups.values():
-            for t_stage in model.t_stages:
-                self.diagnose_matrices.append(model.diagnose_matrices[t_stage])
-
 
     @property
-    def num_patients(self) -> int:
-        """Number of patients in the mixture model. Sum of patients in all subgroups."""
-        return sum(len(model.patient_data) for model in self.subgroups.values())
-
-
-    @property
-    def num_subgroups(self) -> int:
-        """The number of subgroups."""
-        return len(self.subgroups)
+    def patient_data(self) -> pd.DataFrame:
+        """Return all patients stored in the individual subgroups."""
+        return pd.concat([
+            subgroup.patient_data for subgroup in self.subgroups.values()
+        ], ignore_index=True)
 
 
     def complete_data_likelihood(

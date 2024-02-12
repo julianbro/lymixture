@@ -12,9 +12,8 @@ import lymph
 import numpy as np
 import pandas as pd
 import scipy as sp
-from scipy.special import factorial
 from lyscripts.sample import DummyPool, run_mcmc_with_burnin
-
+from scipy.special import factorial
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,27 @@ def binom_pmf(k: np.ndarray, n: int, p: float):
 def late_binomial(support: np.ndarray, p: float = 0.5) -> np.ndarray:
     """Parametrized binomial distribution."""
     return binom_pmf(k=support, n=support[-1], p=p)
+
+
+def map_to_simplex(from_unit_cube: np.ndarray | list[float]) -> np.ndarray:
+    """Map from unit cube to simplex.
+
+    The result has one entry more than ``values``. The method comes from
+    https://cs.stackexchange.com/a/3229
+
+    Example:
+
+    >>> sample = [0.4, 0.7, 0.12, 0.9]
+    >>> mapped = map_to_simplex(sample)
+    >>> mapped
+    array([0.12, 0.28, 0.3 , 0.2 , 0.1 ])
+    >>> sum(mapped) == 1.
+    True
+    >>> len(sample) == len(mapped) - 1
+    True
+    """
+    sorted_values = np.sort([0., *from_unit_cube, 1.])
+    return sorted_values[1:] - sorted_values[:-1]
 
 
 def create_models(
@@ -78,6 +98,27 @@ def create_models(
         models.append(model)
 
     return models
+
+
+def join_with_responsibilities(
+    patient_data: pd.DataFrame,
+    num_components: int,
+    resps: np.ndarray | None = None,
+) -> pd.DataFrame:
+    """Join patient data with empty responsibilities (and reset index)."""
+    mixture_columns = pd.MultiIndex.from_tuples([
+        ("_mixture", "responsibility", i) for i in range(num_components)
+    ])
+
+    if resps is None:
+        resps = np.empty(shape=(len(patient_data), num_components))
+        resps.fill(np.nan)
+        resps = pd.DataFrame(resps, columns=mixture_columns)
+
+    if "_mixture" in patient_data:
+        del patient_data["_mixture"]
+
+    return patient_data.join(resps).reset_index()
 
 
 def create_synth_data(

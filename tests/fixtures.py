@@ -3,12 +3,15 @@ Fixtures and helpers for the unit tests.
 """
 from pathlib import Path
 from typing import Literal
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from lymixture import LymphMixture
 from lymixture.utils import map_to_simplex
+
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 SIMPLE_SUBSITE = ("tumor", "1", "simple_subsite")
 SUBSITE = ("tumor", "1", "subsite")

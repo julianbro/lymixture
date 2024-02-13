@@ -3,12 +3,19 @@ Test the functionality of the mixture model class.
 """
 import unittest
 from unittest import TestCase
+import warnings
 
 import numpy as np
-from fixtures import MixtureModelFixture
+import pandas as pd
 from lymph.models import Unilateral
 
 from lymixture import LymphMixture
+from lymixture.utils import RESP_COL
+
+from fixtures import MixtureModelFixture
+
+
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 
 class TestMixtureModel(MixtureModelFixture, TestCase):
@@ -30,7 +37,7 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
     def test_init(self):
         """Test the initialization of the mixture model."""
         self.assertIsInstance(self.mixture_model, LymphMixture)
-        self.assertEqual(self.mixture_model.num_components, self.num_components)
+        self.assertEqual(len(self.mixture_model.components), self.num_components)
 
 
     def test_load_patient_data(self):
@@ -48,12 +55,12 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
 
         stored_resp = np.empty(shape=(0, self.num_components))
         for subgroup in self.mixture_model.subgroups.values():
-            self.assertIn("_mixture", subgroup.patient_data)
+            self.assertIn(RESP_COL, subgroup.patient_data)
             stored_resp = np.vstack([
-                stored_resp, subgroup.patient_data["_mixture"].to_numpy()
+                stored_resp, subgroup.patient_data[RESP_COL].to_numpy()
             ])
         np.testing.assert_array_equal(self.resp, stored_resp)
-        stored_resp = self.mixture_model.patient_data["_mixture"].to_numpy()
+        stored_resp = self.mixture_model.patient_data[RESP_COL]
         np.testing.assert_array_equal(self.resp, stored_resp)
         stored_resp = self.mixture_model.get_responsibilities()
         np.testing.assert_array_equal(self.resp, stored_resp)
@@ -62,8 +69,8 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
     def test_get_responsibilities(self):
         """Test accessing the responsibilities."""
         self.mixture_model.assign_responsibilities(self.resp)
-        p_idx = self.rng.integers(low=0, high=len(self.patient_data), size=1)
-        c_idx = self.rng.integers(low=0, high=self.num_components, size=1)
+        p_idx = self.rng.integers(low=0, high=len(self.patient_data))
+        c_idx = self.rng.integers(low=0, high=self.num_components)
         self.assertEqual(
             self.resp[p_idx,c_idx],
             self.mixture_model.get_responsibilities(patient=p_idx, component=c_idx)

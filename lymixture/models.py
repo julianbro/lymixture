@@ -8,6 +8,7 @@ import logging
 import random
 from functools import cached_property
 from typing import Any, Iterable, Iterator
+import warnings
 
 import lymph
 import numpy as np
@@ -33,11 +34,12 @@ from lymixture.utils import (
     join_with_responsibilities,
     sample_from_global_model_and_configs,
     split_over_components,
+    RESP_COL
 )
 
+pd.options.mode.copy_on_write = True
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 logger = logging.getLogger(__name__)
-
-RESP_COL = ["_mixture", "repsonsibility"]
 
 # Define a global variable which can be used within this module.
 global LMM_GLOBAL
@@ -260,9 +262,14 @@ class LymphMixture:
     def assign_component_params(
         self,
         *new_params_args,
+        component: int | None = None,
         **new_params_kwargs,
     ) -> Iterator[float]:
         """Assign new spread params to the component models.
+
+        If ``component`` is given, the arguments and keyword arguments are passed to the
+        corresponding component model's :py:meth:`~lymph.models.Unilateral.assign_params`
+        method.
 
         Parameters can be set as positional arguments, in which case they are used up
         one at a time by the individual component models. E.g., if each component has
@@ -274,6 +281,11 @@ class LymphMixture:
         ``0_param1``, ``1_param1``, etc.). When no index is found, the parameter is set
         for all components.
         """
+        if component is not None:
+            return self.components[component].assign_params(
+                *new_params_args, **new_params_kwargs
+            )
+
         params_for_components, global_params = split_over_components(
             new_params_kwargs, num_components=len(self.components)
         )
@@ -297,15 +309,22 @@ class LymphMixture:
         The ``patient`` index enumerates all patients in the mixture model unless
         ``subgroup`` is given, in which case the index runs over the patients in the
         given subgroup.
+
+        Omitting ``component`` or ``patient`` (or both) will return corresponding slices
+        of the responsibility table.
         """
         if subgroup is not None:
-            resp_table = self.subgroups[subgroup].patient_data["_mixture"]
+            resp_table = self.subgroups[subgroup].patient_data
         else:
-            resp_table = self.patient_data["_mixture"]
+            resp_table = self.patient_data
 
-        patient = slice(None) if patient is None else patient
-        component = slice(None) if component is None else component
-        return resp_table.to_numpy()[patient,component]
+        pat_slice = slice(None) if patient is None else patient
+        comp_slice = (*RESP_COL, slice(None) if component is None else component)
+        res = resp_table.loc[pat_slice,comp_slice]
+        try:
+            return res[RESP_COL]
+        except (KeyError, IndexError):
+            return res
 
 
     def assign_responsibilities(
@@ -317,15 +336,35 @@ class LymphMixture:
     ):
         """Assign responsibilities to the model.
 
-        They should have the shape (num_patients, num_components) and summing them
+        They should have the shape ``(num_patients, num_components)`` and summing them
         along the last axis should yield a vector of ones.
 
         Note that these responsibilities essentially become the latent variables
         of the model if they are "hard", i.e. if they are either 0 or 1 and thus
         represent a one-hot encoding of the component assignments.
         """
-        # TODO: Implement the assignment of responsibilities
-        pass
+        pat_slice = slice(None) if patient is None else patient
+        comp_slice = (*RESP_COL, slice(None) if component is None else component)
+
+        if subgroup is not None:
+            sub_data = self.subgroups[subgroup].patient_data
+            sub_data.loc[pat_slice,comp_slice] = new_responsibilities
+            return
+
+        patient_idx = 0
+        for subgroup in self.subgroups.values():
+            sub_data = subgroup.patient_data
+            patient_idx += len(sub_data)
+
+            if patient is not None:
+                if patient_idx > patient:
+                    sub_data.loc[pat_slice,comp_slice] = new_responsibilities
+                    return
+
+            else:
+                sub_resp = new_responsibilities[:len(sub_data)]
+                sub_data.loc[pat_slice,comp_slice] = sub_resp
+                new_responsibilities = new_responsibilities[len(sub_data):]
 
 
     def load_patient_data(

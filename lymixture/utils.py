@@ -6,6 +6,7 @@ Module with utilities for the mixture model package.
 import itertools
 import logging
 import os
+import warnings
 
 import emcee
 import lymph
@@ -15,7 +16,10 @@ import scipy as sp
 from lyscripts.sample import DummyPool, run_mcmc_with_burnin
 from scipy.special import factorial
 
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 logger = logging.getLogger(__name__)
+
+RESP_COL = ("_mixture", "responsibility")
 
 
 def binom_pmf(k: np.ndarray, n: int, p: float):
@@ -107,7 +111,7 @@ def join_with_responsibilities(
 ) -> pd.DataFrame:
     """Join patient data with empty responsibilities (and reset index)."""
     mixture_columns = pd.MultiIndex.from_tuples([
-        ("_mixture", "responsibility", i) for i in range(num_components)
+        (*RESP_COL, i) for i in range(num_components)
     ])
 
     if resps is None:

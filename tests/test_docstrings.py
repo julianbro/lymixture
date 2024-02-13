@@ -3,12 +3,12 @@ Make doctests of the lymixture package discoverable by unittest.
 """
 import doctest
 import unittest
-
-from lymixture import models
-from lymixture import utils
+import warnings
 
 import pandas as pd
-import warnings
+
+from lymixture import models, utils
+
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 

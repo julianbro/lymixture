@@ -1,9 +1,9 @@
 """
 Fixtures and helpers for the unit tests.
 """
+import warnings
 from pathlib import Path
 from typing import Literal
-import warnings
 
 import numpy as np
 import pandas as pd

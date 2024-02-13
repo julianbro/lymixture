@@ -2,18 +2,16 @@
 Test the functionality of the mixture model class.
 """
 import unittest
-from unittest import TestCase
 import warnings
+from unittest import TestCase
 
 import numpy as np
 import pandas as pd
+from fixtures import MixtureModelFixture
 from lymph.models import Unilateral
 
 from lymixture import LymphMixture
 from lymixture.utils import RESP_COL
-
-from fixtures import MixtureModelFixture
-
 
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 

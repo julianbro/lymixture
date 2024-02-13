@@ -6,15 +6,14 @@ likelihood from the components and subgroups in the data.
 
 import logging
 import random
+import warnings
 from functools import cached_property
 from typing import Any, Iterable, Iterator, Literal
-import warnings
 
 import lymph
-from lymph.modalities import ModalitiesUserDict, ModalityDef
-from lymph.diagnose_times import DistributionsUserDict, Distribution
 import numpy as np
 import pandas as pd
+from lymph.diagnose_times import DistributionsUserDict
 
 from lymixture.em_sampling import (
     ExpectationMaximization,
@@ -33,11 +32,11 @@ from lymixture.model_functions import (
     compute_state_probability_matrices,
 )
 from lymixture.utils import (
+    RESP_COL,
+    T_STAGE_COL,
     join_with_responsibilities,
     sample_from_global_model_and_configs,
     split_over_components,
-    RESP_COL,
-    T_STAGE_COL,
 )
 
 pd.options.mode.copy_on_write = True

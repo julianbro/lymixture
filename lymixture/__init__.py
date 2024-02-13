@@ -9,6 +9,6 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 
-from lymixture.mixture_model import LymphMixtureModel
+from lymixture.models import LymphMixture
 
-__all__ = ["LymphMixtureModel"]
+__all__ = ["LymphMixture"]

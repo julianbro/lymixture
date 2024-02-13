@@ -157,11 +157,21 @@ def convert_params(params, n_clusters, n_subsites):
     return params_model, params_mixing
 
 
-def split_params_over_components(
-    params: dict[str, float],
+ParamDict = dict[str, float]
+
+def split_over_components(
+    params: ParamDict,
     num_components: int,
-) -> tuple[list[dict[str, float]], dict[str, float]]:
-    """Split the parameters into separate dictionaries for each component."""
+) -> tuple[list[ParamDict], ParamDict]:
+    """Split the parameters into separate dictionaries for each component.
+
+    This assumes that parameters dedicated to a particular component are namend
+    ``<idx>_<param_name>`` where ``<idx>`` is the index of the component.
+
+    >>> params = {'global': 0.12, '3_param': 0.5}
+    >>> split_over_components(params, num_components=4)
+    ([{}, {}, {}, {'param': 0.5}], {'global': 0.12})
+    """
     params_dict_list = [{} for _ in range(num_components)]
     global_params = {}
 

@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from lymixture import LymphMixtureModel
+from lymixture import LymphMixture
 from lymixture.utils import map_to_simplex
 
 SIMPLE_SUBSITE = ("tumor", "1", "simple_subsite")
@@ -82,7 +82,7 @@ class MixtureModelFixture:
         self.num_components = num_components
         self.model_cls = model_cls
 
-        self.mixture_model = LymphMixtureModel(
+        self.mixture_model = LymphMixture(
             model_cls=self.model_cls,
             model_kwargs={"graph_dict": get_graph(graph_size)},
             num_components=self.num_components,

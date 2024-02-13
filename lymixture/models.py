@@ -32,11 +32,12 @@ from lymixture.model_functions import (
 from lymixture.utils import (
     join_with_responsibilities,
     sample_from_global_model_and_configs,
-    split_params_over_components,
+    split_over_components,
 )
 
 logger = logging.getLogger(__name__)
 
+RESP_COL = ["_mixture", "repsonsibility"]
 
 # Define a global variable which can be used within this module.
 global LMM_GLOBAL
@@ -51,12 +52,12 @@ def log_ll_cl_parameters(cluster_parameters):
     return llh
 
 
-class LymphMixtureModel:
+class LymphMixture:
     """Class that handles the individual components of the mixture model."""
 
     def __init__(
         self,
-        model_cls: lymph.models.Unilateral,
+        model_cls: type = lymph.models.Unilateral,
         model_kwargs: dict[str, Any] | None = None,
         num_components: int = 2,
     ):
@@ -66,7 +67,11 @@ class LymphMixtureModel:
         the ``model_kwargs``), and will have ``num_components``.
         """
         if model_kwargs is None:
-            model_kwargs = {}
+            model_kwargs = {"graph_dict": {
+                ("tumor", "T"): ["II", "III"],
+                ("lnl", "II"): ["III"],
+                ("lnl", "III"): [],
+            }}
 
         if not issubclass(model_cls, lymph.models.Unilateral):
             raise NotImplementedError(
@@ -75,11 +80,10 @@ class LymphMixtureModel:
 
         self._model_cls = model_cls
         self._model_kwargs = model_kwargs
+        self._mixture_coefs = None
 
-        self.components: list[self._model_cls] = []
         self.subgroups: dict[str, self._model_cls] = {}
-
-        self._init_components(num_components)
+        self.components: list[self._model_cls] = self._create_components(num_components)
 
         logger.info(
             f"Created LymphMixtureModel based on {model_cls} model with "
@@ -87,17 +91,13 @@ class LymphMixtureModel:
         )
 
 
-    def _init_components(self, num_components: int):
+    def _create_components(self, num_components: int) -> list[Any]:
         """Initialize the component parameters and assignments."""
-        self.components = []
+        components = []
         for _ in range(num_components):
-            self.components.append(self._model_cls(**self._model_kwargs))
+            components.append(self._model_cls(**self._model_kwargs))
 
-
-    @property
-    def num_components(self) -> int:
-        """The number of mixture components."""
-        return len(self.components)
+        return components
 
 
     @cached_property
@@ -111,7 +111,7 @@ class LymphMixtureModel:
                 "No cluster parameters are in the model. Please provide cluster parameters first."
             )
         return compute_cluster_state_probabilty_matrices(
-            self.component_params, self.lymph_model, self.num_components
+            self.component_params, self.lymph_model, len(self.components)
         )
 
 
@@ -124,7 +124,7 @@ class LymphMixtureModel:
                 "cluster assignments first."
             )
         return compute_cluster_assignment_matrix(
-            self.mixture_coefs, len(self.subgroups), self.num_components
+            self.mixture_coefs, len(self.subgroups), len(self.components)
         )
 
 
@@ -136,10 +136,20 @@ class LymphMixtureModel:
         )
 
 
+    def _create_empty_mixture_coefs(self) -> pd.DataFrame:
+        nan_array = np.empty((len(self.components), len(self.subgroups)))
+        nan_array[:] = np.nan
+        return pd.DataFrame(
+            nan_array,
+            index=range(len(self.components)),
+            columns=self.subgroups.keys(),
+        )
+
+
     def get_mixture_coefs(
         self,
-        subgroup: str | None = None,
         component: int | None = None,
+        subgroup: str | None = None,
     ) -> float | pd.Series | pd.DataFrame:
         """Get mixture coefficients for the given ``subgroup`` and ``component``.
 
@@ -147,36 +157,31 @@ class LymphMixtureModel:
         which means that if no subgroupd and/or component is given, multiple mixture
         coefficients are returned.
         """
-        if not hasattr(self, "_mixture_coefs"):
-            nan_array = np.empty((self.num_components, len(self.subgroups)))
-            nan_array[:] = np.nan
-            self._mixture_coefs = pd.DataFrame(
-                nan_array,
-                index=range(self.num_components),
-                columns=self.subgroups.keys(),
-            )
+        if getattr(self, "_mixture_coefs", None) is None:
+            self._mixture_coefs = self._create_empty_mixture_coefs()
 
-        subgroup = slice(None) if subgroup is None else subgroup
         component = slice(None) if component is None else component
+        subgroup = slice(None) if subgroup is None else subgroup
         return self._mixture_coefs.loc[component, subgroup]
 
 
     def assign_mixture_coefs(
         self,
         new_mixture_coefs: float | np.ndarray,
-        subgroup: str | None = None,
         component: int | None = None,
+        subgroup: str | None = None,
     ) -> None:
         """Assign new mixture coefficients to the model.
 
-        TODO: Finish this docstring.
+        As in :py:meth:`~get_mixture_coefs`, ``subgroup`` and ``component`` can be used
+        to slice the mixture coefficients and therefore assign entirely new coefs to
+        the entire model, to one subgroup, to one component, or to one component of one
+        subgroup.
         """
-        if not hasattr(self, "_mixture_coefs"):
-            _ = self.get_mixture_coefs()
-
+        mixture_coefs = self.get_mixture_coefs()
         component = slice(None) if component is None else component
         subgroup = slice(None) if subgroup is None else subgroup
-        self._mixture_coefs.loc[component, subgroup] = new_mixture_coefs
+        mixture_coefs.loc[component, subgroup] = new_mixture_coefs
 
 
     def get_component_params(
@@ -188,27 +193,68 @@ class LymphMixtureModel:
     ) -> float | Iterable[float] | dict[str, float]:
         """Get the spread parameters of the individual mixture component models.
 
-        If ``as_dict`` is ``True``...
-        TODO: Finish this docstring.
+        If ``component`` is the index of one of the mixture model's components, this
+        method simply returns the call to :py:meth:`~lymph.models.Unilateral.get_params`
+        for the given component.
+
+        When no ``component`` is specified and ``flatten`` is set to ``False``, a list
+        of calls to :py:meth:`~lymph.models.Unilateral.get_params` for all components is
+        returned. This may then contain only floats (if ``param`` is given), iterables
+        of parameters (when ``as_dict`` is set to ``False``), or dictionaries of the
+        component's parameters.
+
+        Lastly, when ``flatten`` is set to ``True``, a dictionary of the form
+        ``<idx>_<param>: value`` is created, where ``<idx>`` is the index of the
+        component and ``<param>`` is the name of the parameter. When ``param`` is not
+        given and ``as_dict`` is ``True``, this dictionary is returned. When ``param``
+        specifies a cluster parameter, the value of that parameter is returned. And
+        when ``param`` is not given and ``as_dict`` is ``False``, the values of the
+        dictionary are returned as an iterable.
+
+        Examples:
+
+        >>> graph_dict = {
+        ...     ("tumor", "T"): ["II"],
+        ...     ("lnl", "II"): [],
+        ... }
+        >>> mixture = LymphMixture(
+        ...     model_kwargs={"graph_dict": graph_dict},
+        ...     num_components=2,
+        ... )
+        >>> mixture.assign_component_params(0.1, 0.9)
+        >>> mixture.get_component_params()              # doctest: +NORMALIZE_WHITESPACE
+        [{'T_to_II_spread': 0.1},
+         {'T_to_II_spread': 0.9}]
+        >>> mixture.get_component_params(flatten=True)  # doctest: +NORMALIZE_WHITESPACE
+        {'0_T_to_II_spread': 0.1,
+         '1_T_to_II_spread': 0.9}
+        >>> mixture.get_component_params(param="T_to_II_spread")
+        [0.1, 0.9]
+        >>> mixture.get_component_params(param="T_to_II_spread", component=0)
+        0.1
+        >>> mixture.get_component_params(as_dict=False)
+        [dict_values([0.1]), dict_values([0.9])]
+        >>> mixture.get_component_params(as_dict=False, flatten=True)
+        dict_values([0.1, 0.9])
+        >>> mixture.get_component_params(param="0_T_to_II_spread", flatten=True)
+        0.1
         """
         if component is not None:
             return self.components[component].get_params(param=param, as_dict=as_dict)
 
-        if param is not None:
-            return [c.get_params(param=param) for c in self.components]
+        if not flatten:
+            return [c.get_params(param=param, as_dict=as_dict) for c in self.components]
 
-        # TODO: Finish this implementation in a useful way
-        if flatten:
-            params = {
-                f"{c}_{k}": v
-                for c, p in enumerate(params)
-                for k, v in p.items()
-            }
+        flat_params = {
+            f"{c}_{k}": v
+            for c, component in enumerate(self.components)
+            for k, v in component.get_params(as_dict=True).items()
+        }
 
         if param is not None:
-            return params[param]
+            return flat_params[param]
 
-        return params if as_dict else params.values()
+        return flat_params if as_dict else flat_params.values()
 
 
     def assign_component_params(
@@ -219,15 +265,17 @@ class LymphMixtureModel:
         """Assign new spread params to the component models.
 
         Parameters can be set as positional arguments, in which case they are used up
-        one by one for each component, or as keyword arguments.
+        one at a time by the individual component models. E.g., if each component has
+        two parameters, the first two positional arguments are used for the first
+        component, the next two for the second component, and so on.
 
         If provided as keyword arguments, the keys are the parameter names expected by
         the individual models, prefixed by the index of the component (e.g.
         ``0_param1``, ``1_param1``, etc.). When no index is found, the parameter is set
         for all components.
         """
-        params_for_components, global_params = split_params_over_components(
-            new_params_kwargs, num_components=self.num_components
+        params_for_components, global_params = split_over_components(
+            new_params_kwargs, num_components=len(self.components)
         )
         for c, component in enumerate(self.components):
             component_params = {}
@@ -236,11 +284,6 @@ class LymphMixtureModel:
             new_params_args, _ = component.assign_params(
                 *new_params_args, **component_params
             )
-
-        # TODO: Think about whether these two attributes are necessary in this form
-        del self.cluster_state_probabilty_matrices
-        del self.state_probability_matrices
-        return new_params_args
 
 
     def get_responsibilities(
@@ -298,6 +341,7 @@ class LymphMixtureModel:
         data. Any additional keyword arguments are passed to the
         :py:meth:`~lymph.models.Unilateral.load_patient_data` method.
         """
+        self._mixture_coefs = None
         grouped = patient_data.groupby(split_by)
 
         for label, data in grouped:
@@ -318,19 +362,12 @@ class LymphMixtureModel:
 
     def complete_data_likelihood(
         self,
-        patient_data: pd.DataFrame | None = None,
-        split_by: tuple[str, str, str] = ("tumor", "1", "subsite"),
-        load_data_kwargs: dict[str, Any] | None = None,
         responsibilities: np.ndarray | None = None,
         mixture_coefs: np.ndarray | None = None,
         model_params: np.ndarray | None = None,
         log: bool = True,
     ) -> float:
         """Compute the complete data likelihood of the model."""
-        if patient_data is not None:
-            load_data_kwargs = {} if load_data_kwargs is None else load_data_kwargs
-            self.load_patient_data(patient_data, split_by, **load_data_kwargs)
-
         if responsibilities is not None:
             self.assign_responsibilities(responsibilities)
 
@@ -581,7 +618,7 @@ class LymphMixtureModel:
         oc_df, _ = create_obs_pred_df_single(
             samples_for_predictions=self.cluster_parameters_chain,
             model=self.lymph_model,
-            n_clusters=self.num_components,
+            n_clusters=len(self.components),
             cluster_assignment=cluster_assignment,
             data_input=data,
             patterns=for_states,

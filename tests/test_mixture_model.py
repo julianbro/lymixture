@@ -8,7 +8,7 @@ import numpy as np
 from fixtures import MixtureModelFixture
 from lymph.models import Unilateral
 
-from lymixture import LymphMixtureModel
+from lymixture import LymphMixture
 
 
 class TestMixtureModel(MixtureModelFixture, TestCase):
@@ -29,7 +29,7 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
 
     def test_init(self):
         """Test the initialization of the mixture model."""
-        self.assertIsInstance(self.mixture_model, LymphMixtureModel)
+        self.assertIsInstance(self.mixture_model, LymphMixture)
         self.assertEqual(self.mixture_model.num_components, self.num_components)
 
 

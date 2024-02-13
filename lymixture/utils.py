@@ -20,6 +20,7 @@ warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 logger = logging.getLogger(__name__)
 
 RESP_COL = ("_mixture", "responsibility")
+T_STAGE_COL = ("_model", "#", "t_stage")
 
 
 def binom_pmf(k: np.ndarray, n: int, p: float):

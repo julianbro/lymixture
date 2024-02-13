@@ -7,10 +7,12 @@ likelihood from the components and subgroups in the data.
 import logging
 import random
 from functools import cached_property
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Literal
 import warnings
 
 import lymph
+from lymph.modalities import ModalitiesUserDict, ModalityDef
+from lymph.diagnose_times import DistributionsUserDict, Distribution
 import numpy as np
 import pandas as pd
 
@@ -34,7 +36,8 @@ from lymixture.utils import (
     join_with_responsibilities,
     sample_from_global_model_and_configs,
     split_over_components,
-    RESP_COL
+    RESP_COL,
+    T_STAGE_COL,
 )
 
 pd.options.mode.copy_on_write = True
@@ -298,11 +301,19 @@ class LymphMixture:
             )
 
 
+    @property
+    def diag_time_dists(self) -> DistributionsUserDict:
+        """Distributions over diagnose times of the mixture, delegated from components."""
+        return self.components[0].diag_time_dists
+
+
     def get_responsibilities(
         self,
         patient: int | None = None,
         subgroup: str | None = None,
         component: int | None = None,
+        filter_by: tuple[str, str, str] | None = None,
+        filter_value: Any | None = None,
     ) -> pd.DataFrame:
         """Get the repsonsibility of a ``patient`` for a ``component``.
 
@@ -317,6 +328,10 @@ class LymphMixture:
             resp_table = self.subgroups[subgroup].patient_data
         else:
             resp_table = self.patient_data
+
+        if filter_by is not None and filter_value is not None:
+            filter_idx = resp_table[filter_by] == filter_value
+            resp_table = resp_table.loc[filter_idx]
 
         pat_slice = slice(None) if patient is None else patient
         comp_slice = (*RESP_COL, slice(None) if component is None else component)
@@ -367,6 +382,49 @@ class LymphMixture:
                 new_responsibilities = new_responsibilities[len(sub_data):]
 
 
+    def update_subgroup_modalities(
+        self,
+        new_modalities,
+        subgroup: str | None = None,
+        clear: bool = False,
+    ):
+        """Update the modalities of the model.
+
+        The subgroups' modalities are updated with the given ``new_modalities``. If
+        ``subgroup`` is given, only the modalities of that subgroup are updated. When
+        ``clear`` is set to ``True``, the existing modalities are cleared before
+        updating.
+        """
+        subgroup_keys = [subgroup] if subgroup is not None else self.subgroups.keys()
+
+        for key in subgroup_keys:
+            if clear:
+                self.subgroups[key].modalities.clear()
+            self.subgroups[key].modalities.update(new_modalities)
+
+
+    def update_component_diag_time_dists(
+        self,
+        new_diag_time_dists: DistributionsUserDict,
+        component: int | None = None,
+        clear: bool = False,
+    ):
+        """Update the diagnose time distributions of the model.
+
+        The diagnose time distributions of the components are updated with the given
+        ``new_diag_time_dists``. If ``component`` is given, only the diagnose time
+        distributions of that component are updated. When ``clear`` is set to ``True``,
+        the existing diagnose time distributions are cleared before updating.
+        """
+        comp_slice = slice(None) if component is None else component
+        components = self.components[comp_slice]
+
+        for component in components:
+            if clear:
+                component.diag_time_dists.clear()
+            component.diag_time_dists.update(new_diag_time_dists)
+
+
     def load_patient_data(
         self,
         patient_data: pd.DataFrame,
@@ -384,7 +442,8 @@ class LymphMixture:
         grouped = patient_data.groupby(split_by)
 
         for label, data in grouped:
-            self.subgroups[label] = self._model_cls(**self._model_kwargs)
+            if label not in self.subgroups:
+                self.subgroups[label] = self._model_cls(**self._model_kwargs)
             data = join_with_responsibilities(
                 data, num_components=len(self.components)
             )
@@ -399,25 +458,92 @@ class LymphMixture:
         ], ignore_index=True)
 
 
-    def complete_data_likelihood(
-        self,
-        responsibilities: np.ndarray | None = None,
-        mixture_coefs: np.ndarray | None = None,
-        model_params: np.ndarray | None = None,
-        log: bool = True,
-    ) -> float:
+    @property
+    def t_stages(self) -> set[str]:
+        """Return all t_stages stored in the individual subgroups."""
+        from_data = set(
+            t_stage for subgroup in self.subgroups.values()
+            for t_stage in subgroup.patient_data[T_STAGE_COL]
+        )
+        from_comps = set(
+            t_stage for component in self.components
+            for t_stage in component.t_stages
+        )
+        if from_data != from_comps:
+            warnings.warn(
+                "T-stages in the subgroups and the components do not match. "
+                "This might be because no distributions over diagnose times have been "
+                "defined in the component models."
+            )
+
+        return from_comps
+
+
+    def get_t_stage_intersection(
+        self, get_for: Literal["subgroups", "components"],
+    ) -> set[str]:
+        """Get the intersection of T-stages defined in subgroups or components.
+
+        This method returns those T-stages that are defined in all subgroups or all
+        components (depending on the value of ``get_for``).
+
+        In case of the subgroups, the T-stages are taken from the patient data. For the
+        components, the T-stages are taken from the diagnose time distributions.
+        """
+        if get_for == "subgroups":
+            generator = (
+                set(sub.patient_data[T_STAGE_COL].unique())
+                for sub in self.subgroups.values()
+            )
+        elif get_for == "components":
+            generator = (comp.diag_time_dists.keys() for comp in self.components)
+        else:
+            raise ValueError(
+                f"Unknown value for 'get_for': {get_for}. Must be 'subgroups' or "
+                "'components'."
+            )
+
+        t_stages = None
+        for item in generator:
+            if t_stages is None:
+                t_stages = item
+            else:
+                t_stages &= item
+        return t_stages
+
+
+    @property
+    def t_stages(self) -> set[str]:
+        """Compute the intersection of T-stages defined in subgroups and components."""
+        return (
+            self.get_t_stage_intersection("components")
+            & self.get_t_stage_intersection("subgroups")
+        )
+
+
+    def complete_data_likelihood(self, log: bool = True) -> float:
         """Compute the complete data likelihood of the model."""
-        if responsibilities is not None:
-            self.assign_responsibilities(responsibilities)
+        num_states = len(self.components[0].state_list)
+        component_patient_likelihood = {}
+        responsibilities = {}
+        for t in self.t_stages:
+            component_state_dists = np.empty(shape=(len(self.components), num_states))
+            for i, component in enumerate(self.components):
+                component_state_dists[i] = component.comp_state_dist(t_stage=t)
 
-        if mixture_coefs is not None:
-            self.assign_mixture_coefs(mixture_coefs)
+            stacked_diag_matrices = np.hstack([
+                subgroup.diagnose_matrices[t] for subgroup in self.subgroups.values()
+            ])
 
-        if model_params is not None:
-            self.assign_component_params(*model_params)
+            component_patient_likelihood[t] = (
+                component_state_dists @ stacked_diag_matrices
+            )
+
+            responsibilities[t] = self.get_responsibilities(
+                filter_by=T_STAGE_COL, filter_value=t
+            )
 
         llh = 0 if log else 1.0
-        # TODO: Implement the complete data likelihood
         return llh
 
 

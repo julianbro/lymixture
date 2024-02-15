@@ -5,9 +5,7 @@ likelihood from the components and subgroups in the data.
 # pylint: disable=logging-fstring-interpolation
 
 import logging
-import random
 import warnings
-from functools import cached_property
 from typing import Any, Iterable, Iterator, Literal
 
 import lymph
@@ -15,45 +13,16 @@ import numpy as np
 import pandas as pd
 from lymph.diagnose_times import DistributionsUserDict
 
-from lymixture.em_sampling import (
-    ExpectationMaximization,
-    History,
-    emcee_simple_sampler,
-    exceed_param_bound,
-)
-from lymixture.mm_predict import (
-    create_obs_pred_df_single,
-    mm_generate_predicted_prevalences,
-    mm_predicted_risk,
-)
-from lymixture.model_functions import (
-    compute_cluster_assignment_matrix,
-    compute_cluster_state_probabilty_matrices,
-    compute_state_probability_matrices,
-)
 from lymixture.utils import (
     RESP_COL,
     T_STAGE_COL,
     join_with_responsibilities,
-    sample_from_global_model_and_configs,
     split_over_components,
 )
 
 pd.options.mode.copy_on_write = True
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 logger = logging.getLogger(__name__)
-
-# Define a global variable which can be used within this module.
-global LMM_GLOBAL
-
-
-def log_ll_cl_parameters(cluster_parameters):
-    if exceed_param_bound(cluster_parameters):
-        return -np.inf
-    llh = LMM_GLOBAL.mm_hmm_likelihood(cluster_parameters=cluster_parameters)
-    if np.isinf(llh):
-        return -np.inf
-    return llh
 
 
 class LymphMixture:
@@ -104,42 +73,6 @@ class LymphMixture:
         return components
 
 
-    @cached_property
-    def cluster_state_probabilty_matrices(self) -> np.ndarray:
-        """
-        Holds the cluster matrices (i.e the state probabilities of the cluster) for
-        each t-stage and cluster.
-        """
-        if self.component_params is None:
-            raise ValueError(
-                "No cluster parameters are in the model. Please provide cluster parameters first."
-            )
-        return compute_cluster_state_probabilty_matrices(
-            self.component_params, self.lymph_model, len(self.components)
-        )
-
-
-    @cached_property
-    def cluster_assignment_matrix(self) -> np.ndarray:
-        """Holds the cluster assignment matrix."""
-        if self.mixture_coefs is None:
-            raise ValueError(
-                "No cluster assignments are loaded in the model. Please provide "
-                "cluster assignments first."
-            )
-        return compute_cluster_assignment_matrix(
-            self.mixture_coefs, len(self.subgroups), len(self.components)
-        )
-
-
-    @cached_property
-    def state_probability_matrices(self) -> np.ndarray:
-        """Holds the state probability matrices for every subgroup and every t_stage."""
-        return compute_state_probability_matrices(
-            self.cluster_assignment_matrix, self.cluster_state_probabilty_matrices
-        )
-
-
     def _create_empty_mixture_coefs(self) -> pd.DataFrame:
         nan_array = np.empty((len(self.components), len(self.subgroups)))
         nan_array[:] = np.nan
@@ -154,22 +87,29 @@ class LymphMixture:
         self,
         component: int | None = None,
         subgroup: str | None = None,
+        normalize: bool = True,
     ) -> float | pd.Series | pd.DataFrame:
         """Get mixture coefficients for the given ``subgroup`` and ``component``.
 
         The mixture coefficients are sliced by the given ``subgroup`` and ``component``
         which means that if no subgroupd and/or component is given, multiple mixture
         coefficients are returned.
+
+        If ``normalize`` is set to ``True``, the mixture coefficients are normalized
+        along the component axis before being returned.
         """
         if getattr(self, "_mixture_coefs", None) is None:
             self._mixture_coefs = self._create_empty_mixture_coefs()
+
+        if normalize:
+            self.normalize_mixture_coefs()
 
         component = slice(None) if component is None else component
         subgroup = slice(None) if subgroup is None else subgroup
         return self._mixture_coefs.loc[component, subgroup]
 
 
-    def assign_mixture_coefs(
+    def set_mixture_coefs(
         self,
         new_mixture_coefs: float | np.ndarray,
         component: int | None = None,
@@ -182,10 +122,30 @@ class LymphMixture:
         the entire model, to one subgroup, to one component, or to one component of one
         subgroup.
         """
-        mixture_coefs = self.get_mixture_coefs()
+        if getattr(self, "_mixture_coefs", None) is None:
+            self._mixture_coefs = self._create_empty_mixture_coefs()
+
         component = slice(None) if component is None else component
         subgroup = slice(None) if subgroup is None else subgroup
-        mixture_coefs.loc[component, subgroup] = new_mixture_coefs
+        self._mixture_coefs.loc[component, subgroup] = new_mixture_coefs
+
+
+    def normalize_mixture_coefs(self) -> None:
+        """Normalize the mixture coefficients to sum to one."""
+        self._mixture_coefs = self._mixture_coefs / self._mixture_coefs.sum(axis=0)
+
+
+    def repeat_mixture_coefs(self, t_stage: str, log: bool = True) -> np.ndarray:
+        """Stretch the mixture coefficients to match the number of patients."""
+        res = np.empty(shape=(0, len(self.components)))
+        for label, subgroup in self.subgroups.items():
+            num_patients = subgroup.diagnose_matrices[t_stage].shape[1]
+            res = np.vstack([
+                res,
+                np.tile(self.get_mixture_coefs(subgroup=label), (num_patients, 1))
+            ])
+
+        return np.log(res) if log else res
 
 
     def get_component_params(
@@ -300,12 +260,6 @@ class LymphMixture:
             )
 
 
-    @property
-    def diag_time_dists(self) -> DistributionsUserDict:
-        """Distributions over diagnose times of the mixture, delegated from components."""
-        return self.components[0].diag_time_dists
-
-
     def get_responsibilities(
         self,
         patient: int | None = None,
@@ -341,7 +295,7 @@ class LymphMixture:
             return res
 
 
-    def assign_responsibilities(
+    def set_responsibilities(
         self,
         new_responsibilities: float | np.ndarray,
         patient: int | None = None,
@@ -381,13 +335,34 @@ class LymphMixture:
                 new_responsibilities = new_responsibilities[len(sub_data):]
 
 
-    def update_subgroup_modalities(
+    def normalize_responsibilities(self) -> None:
+        """Normalize the responsibilities to sum to one."""
+        for label in self.subgroups:
+            sub_resps = self.get_responsibilities(subgroup=label)
+            self.set_responsibilities(sub_resps / sub_resps.sum(axis=1), subgroup=label)
+
+
+    def harden_responsibilities(self) -> None:
+        """Make the responsibilities hard, i.e. convert them to one-hot encodings."""
+        resps = self.get_responsibilities().to_numpy()
+        max_resps = np.max(resps, axis=1)
+        hard_resps = np.where(resps == max_resps[:,None], 1, 0)
+        self.set_responsibilities(hard_resps)
+
+
+    @property
+    def diag_time_dists(self) -> DistributionsUserDict:
+        """Distributions over diagnose times of the mixture, delegated from components."""
+        return self.components[0].diag_time_dists
+
+
+    def update_modalities(
         self,
         new_modalities,
         subgroup: str | None = None,
         clear: bool = False,
     ):
-        """Update the modalities of the model.
+        """Update the modalities of the mixture's subgroup models.
 
         The subgroups' modalities are updated with the given ``new_modalities``. If
         ``subgroup`` is given, only the modalities of that subgroup are updated. When
@@ -402,13 +377,13 @@ class LymphMixture:
             self.subgroups[key].modalities.update(new_modalities)
 
 
-    def update_component_diag_time_dists(
+    def update_diag_time_dists(
         self,
         new_diag_time_dists: DistributionsUserDict,
         component: int | None = None,
         clear: bool = False,
     ):
-        """Update the diagnose time distributions of the model.
+        """Update the diagnose time distributions of the mixture's components.
 
         The diagnose time distributions of the components are updated with the given
         ``new_diag_time_dists``. If ``component`` is given, only the diagnose time
@@ -457,27 +432,6 @@ class LymphMixture:
         ], ignore_index=True)
 
 
-    @property
-    def t_stages(self) -> set[str]:
-        """Return all t_stages stored in the individual subgroups."""
-        from_data = set(
-            t_stage for subgroup in self.subgroups.values()
-            for t_stage in subgroup.patient_data[T_STAGE_COL]
-        )
-        from_comps = set(
-            t_stage for component in self.components
-            for t_stage in component.t_stages
-        )
-        if from_data != from_comps:
-            warnings.warn(
-                "T-stages in the subgroups and the components do not match. "
-                "This might be because no distributions over diagnose times have been "
-                "defined in the component models."
-            )
-
-        return from_comps
-
-
     def get_t_stage_intersection(
         self, get_for: Literal["subgroups", "components"],
     ) -> set[str]:
@@ -520,274 +474,77 @@ class LymphMixture:
         )
 
 
-    def complete_data_likelihood(self, log: bool = True) -> float:
-        """Compute the complete data likelihood of the model."""
-        num_states = len(self.components[0].state_list)
-        component_patient_likelihood = {}
-        responsibilities = {}
-        for t in self.t_stages:
-            component_state_dists = np.empty(shape=(len(self.components), num_states))
-            for i, component in enumerate(self.components):
-                component_state_dists[i] = component.comp_state_dist(t_stage=t)
-
-            stacked_diag_matrices = np.hstack([
-                subgroup.diagnose_matrices[t] for subgroup in self.subgroups.values()
-            ])
-
-            component_patient_likelihood[t] = (
-                component_state_dists @ stacked_diag_matrices
-            )
-
-            responsibilities[t] = self.get_responsibilities(
-                filter_by=T_STAGE_COL, filter_value=t
-            )
-
-        llh = 0 if log else 1.0
-        return llh
-
-
-    def _mm_hmm_likelihood(self, log: bool = True) -> float:
-        """
-        Implements the likelihood function
-        """
-        llh = 0 if log else 1.0
-        # Sum over all subsites..
-        for diagnose_matrices_s, state_probability_matrices_s in zip(
-            self.diagnose_matrices, self.state_probability_matrices
-        ):
-            # .. and sum over all t_stages within that subsite.
-            for diagnose_matrix, state_probabilty in zip(
-                diagnose_matrices_s, state_probability_matrices_s
-            ):
-                # sum the likelihoods of observing each patient diagnose given the
-                # state probability from the mixture.
-                if log:
-                    llh += np.sum(np.log(state_probabilty @ diagnose_matrix))
-                else:
-                    llh *= np.prod(state_probabilty @ diagnose_matrix)
-        return llh
-
-
-    def mm_hmm_likelihood(
+    def comp_component_patient_likelihood(
         self,
-        cluster_parameters=None,
-        cluster_assignments=None,
-        data: pd.DataFrame | None = None,
-        load_data_kwargs: dict[str, Any] | None = None,
-        log: bool = True,
-    ):
-        """Compute the likelihood of the ``data`` given the model, theta and cluster
-        assignment.
-
-        Parameters:
-        - cluster_parameters: The cluster parameters for the mixture model. If not
-            provided, the model uses the existing parameters set within the model.
-        - cluster_assignments: The assignment of data points to specific clusters.
-            If not provided, existing assignments within the model are used.
-        - data: The data for which to compute the likelihood. If not provided, the
-            model uses the data already loaded.
-        - load_data_kwargs: Additional keyword arguments to pass to the
-            :py:meth:`~load_patient_data` method when loading the data.
-
-        Raises:
-        - ValueError: If the necessary parameters or data are not provided and are
-            also not available within the model.
-
-        Returns:
-        - The likelihood of the provided data given the model parameters and settings.
-        """
-
-        if cluster_parameters is not None:
-            self.component_params = cluster_parameters
-
-        if cluster_assignments is not None:
-            self.mixture_coefs = cluster_assignments
-
-        if data is not None:
-            if load_data_kwargs is None:
-                load_data_kwargs = {}
-            self.load_patient_data(data, **load_data_kwargs)
-
-        return self._mm_hmm_likelihood(log=log)
-
-
-    def estimate_cluster_assignments(self, em_config=None) -> tuple[np.ndarray, History]:
-        """Estimates the cluster assignments using an EM algortihm"""
-        self.em_algortihm = ExpectationMaximization(lmm=self, em_config=em_config)
-        estimated_cluster_assignments, em_history = self.em_algortihm.run_em()
-        return estimated_cluster_assignments, em_history
-
-
-    def _mcmc_sampling(self, mcmc_config: dict):
-        """
-        Performs MCMC sampling to determine model parameters for the current cluster
-        assignments.
-        """
-        global LMM_GLOBAL
-        LMM_GLOBAL = self
-
-        sampler = mcmc_config.get("sampler", "SIMPLE")
-        sampling_params = mcmc_config["sampling_params"]
-        log_prob_fn = log_ll_cl_parameters
-
-        hdf5_backend = emcee.backends.HDFBackend(self.hdf5_output, name="mcmc")
-        logger.debug(f"Prepared sampling backend at {self.hdf5_output}")
-
-        if sampler == "SIMPLE":
-            logger.info("Using simple sampler for MCMC")
-            sample_chain, end_point, log_probs = emcee_simple_sampler(
-                log_prob_fn,
-                ndim=self.num_component_params,
-                sampling_params=sampling_params,
-                starting_point=None,
-                hdf5_backend=hdf5_backend,
-            )
-        else:
-            logger.info("Using lyscript sampler for MCMC")
-            (
-                sample_chain,
-                end_point,
-                log_probs,
-            ) = sample_from_global_model_and_configs(
-                log_prob_fn,
-                ndim=self.num_component_params,
-                sampling_params=sampling_params,
-                starting_point=None,
-                backend=hdf5_backend,
-                models=self,
-            )
-
-        return sample_chain, end_point, log_probs
-
-
-    def fit(
-        self,
-        em_config: dict | None = None,
-        mcmc_config: dict | None = None,
-    ):
-        """
-        Fits the mixture model, i.e. finds the optimal cluster assignments and the
-        cluster parameters, using (1) the EM algorithm and (2) the MCMC sampling method.
-        """
-        # Ugly, but we need to do it for the mcmc sampling.
-        global LMM_GLOBAL
-        LMM_GLOBAL = self
-
-        # Estimate the Cluster Assignments.
-        self.mixture_coefs, history = self.estimate_cluster_assignments(em_config)
-
-        # MCMC Sampling
-        # Find the cluster parameters using MCMC based on the cluster assignments.
-        # Store the final cluster assignments and parameters
-        if mcmc_config is not None:
-            sample_chain, _, _ = self._mcmc_sampling(mcmc_config)
-
-        self.component_params = sample_chain.mean(axis=0)
-        self.cluster_parameters_chain = sample_chain
-
-        return sample_chain, self.mixture_coefs, history
-
-
-    def get_cluster_assignment_for_label(self, label: str):
-        """Get the cluster assignment for the given label."""
-        try:
-            index = self.subgroup_labels.index(label)
-            return self.cluster_assignment_matrix[index, :]
-
-        except ValueError:
-            logger.error(f"'{label}' is not in the supopulation labelk.")
-
-
-    def predict_prevalence_for_cluster_assignment(
-        self,
-        cluster_assignment: np.ndarray,
-        for_pattern: dict[str, dict[str, bool]],
-        t_stage: str = "early",
-        modality_spsn: list[float] | None = None,
-        invert: bool = False,
-        cluster_parameters: np.ndarray | None = None,
-        n_samples_for_prediction: int = 200,
-        **_kwargs,
-    ):
-        """Predict Prevalence for a given cluster assignment."""
-        # When no cluster parameters are given, we take the one stored in the model
-        if cluster_parameters is None:
-            cluster_parameters = self.cluster_parameters_chain
-        # Only use n samples to make the prediction
-        random_idx = random.sample(
-            range(cluster_parameters.shape[0]), n_samples_for_prediction
-        )
-        cluster_parameters_for_prediction = cluster_parameters[random_idx, :]
-
-        return mm_generate_predicted_prevalences(
-            cluster_assignment,
-            cluster_parameters_for_prediction,
-            for_pattern,
-            self.lymph_model,
-            t_stage,
-            modality_spsn,
-            invert,
-            **_kwargs,
-        )
-
-
-    def predict_risk(
-        self,
-        cluster_assignment: np.ndarray,
-        involvement: dict[str, dict[str, bool]],
         t_stage: str,
-        midline_ext: bool = False,
-        given_diagnosis: dict[str, dict[str, bool]] | None = None,
-        given_diagnosis_spsn: list[float] | None = None,
-        invert: bool = False,
-        cluster_parameters: np.ndarray | None = None,
-        n_samples_for_prediction: int = 200,
-        **_kwargs,
-    ):
-        """Predict Risk for a given cluster assignment."""
-        # When no cluster parameters are explicitly given, we take the one stored in the model
-        if cluster_parameters is None:
-            cluster_parameters = self.cluster_parameters_chain
-        # Only use n samples to make the prediction
-        random_idx = random.sample(
-            range(cluster_parameters.shape[0]), n_samples_for_prediction
-        )
-        cluster_parameters_for_pred = cluster_parameters[random_idx, :]
+        log: bool = True,
+    ) -> np.ndarray:
+        """Compute the (log-)likelihood of all patients, given the components.
 
-        return mm_predicted_risk(
-            involvement=involvement,
-            model=self.lymph_model,
-            cluster_assignment=cluster_assignment,
-            cluster_parameters=cluster_parameters_for_pred,
-            t_stage=t_stage,
-            midline_ext=midline_ext,
-            given_diagnosis=given_diagnosis,
-            given_diagnosis_spsn=given_diagnosis_spsn,
-            invert=invert,
-            **_kwargs,
-        )
+        The returned array has shape ``(num_components, num_patients)`` and contains
+        the likelihood of each patient under each component. If ``log`` is set to
+        ``True``, the likelihoods are returned in log-space.
+        """
+        stacked_diag_matrices = np.hstack([
+            subgroup.diagnose_matrices[t_stage] for subgroup in self.subgroups.values()
+        ])
+        llhs = np.empty(shape=(stacked_diag_matrices.shape[1], len(self.components)))
+        for i, component in enumerate(self.components):
+            llhs[:,i] = component.comp_state_dist(t_stage=t_stage) @ stacked_diag_matrices
+
+        return np.log(llhs) if log else llhs
 
 
-    def create_observed_predicted_df_for_cluster_assignment(
+    def comp_patient_mixture_likelihood(
         self,
-        cluster_assignment,
-        for_states,
-        data,
-    ):
-        """
-        Create an observed / predicted results dataframe for the given
-        `cluster_assignment` and given `data`, using the cluster parameters from the
-        model.
-        """
-        oc_df, _ = create_obs_pred_df_single(
-            samples_for_predictions=self.cluster_parameters_chain,
-            model=self.lymph_model,
-            n_clusters=len(self.components),
-            cluster_assignment=cluster_assignment,
-            data_input=data,
-            patterns=for_states,
-            lnls=list(self.lymph_model.graph.lnls.keys()),
-            save_name=None,
-        )
+        t_stage: str,
+        log: bool = True,
+        marginalize_components: bool = False,
+    ) -> np.ndarray:
+        """Compute the (log-)likelihood of all patients under the mixture model.
 
-        return oc_df, _
+        This is essentially the (log-)likelihood of all patients given the individual
+        components, but weighted by the mixture coefficients.
+
+        If ``marginalize_components`` is set to ``True``, the likelihoods are summed
+        over the components, effectively marginalizing the components out of the
+        likelihoods.
+        """
+        component_patient_likelihood = self.comp_component_patient_likelihood(t_stage, log)
+        full_mixture_coefs = self.repeat_mixture_coefs(t_stage, log)
+
+        if log:
+            llh = full_mixture_coefs + component_patient_likelihood
+        else:
+            llh = full_mixture_coefs * component_patient_likelihood
+
+        if marginalize_components:
+            return np.logaddexp.reduce(llh, axis=0) if log else np.sum(llh, axis=0)
+
+        return llh
+
+
+    def complete_data_likelihood(
+        self,
+        t_stage: str | None = None,
+        log: bool = True,
+    ) -> float:
+        """Compute the complete data likelihood of the model."""
+        if t_stage is None:
+            t_stages = self.t_stages
+        else:
+            t_stages = [t_stage]
+
+        llh = 0 if log else 1.0
+        for t in t_stages:
+            llhs = self.comp_patient_mixture_likelihood(t, log)
+            resps = self.get_responsibilities(
+                filter_by=T_STAGE_COL, filter_value=t
+            ).to_numpy()
+
+            if log:
+                llh += np.sum(resps * llhs)
+            else:
+                llh *= np.prod(llhs ** resps)
+
+        return llh

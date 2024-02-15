@@ -49,7 +49,7 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
 
     def test_assign_responsibilities(self):
         """Test the assignment of responsibilities."""
-        self.mixture_model.assign_responsibilities(self.resp)
+        self.mixture_model.set_responsibilities(self.resp)
 
         stored_resp = np.empty(shape=(0, self.num_components))
         for subgroup in self.mixture_model.subgroups.values():
@@ -66,7 +66,7 @@ class TestMixtureModel(MixtureModelFixture, TestCase):
 
     def test_get_responsibilities(self):
         """Test accessing the responsibilities."""
-        self.mixture_model.assign_responsibilities(self.resp)
+        self.mixture_model.set_responsibilities(self.resp)
         p_idx = self.rng.integers(low=0, high=len(self.patient_data))
         c_idx = self.rng.integers(low=0, high=self.num_components)
         self.assertEqual(

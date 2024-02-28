@@ -1,0 +1,113 @@
+barplot_kwargs:
+  width: 0.9
+  zorder: 2
+graph:
+  lnl:
+    I:
+    - II
+    II:
+    - III
+    III:
+    - IV
+    IV: []
+  tumor:
+    primary:
+    - I
+    - II
+    - III
+    - IV
+icd_code_map:
+  C01: base of tongue
+  C02: tongue, other
+  C03: gum
+  C04: floor of mouth
+  C05: palate
+  C06: mouth, other
+  C09: tonsil
+  C10: oropharynx, other
+mixture_model:
+  em_config:
+    convergence:
+      criterion: default
+      default:
+        lookback_period: 4
+        threshold: 0.015
+    e_step:
+      nburnin: 50
+      nsteps: 30
+      sampler: SIMPLE
+      show_progress: true
+      walkers_per_dim: 20
+    m_step:
+      minimize_method: SLSQP
+    max_steps: 20
+    method: INVERTED
+    verbose: false
+  mcmc_config:
+    sampler: SIMPLE
+    sampling_params:
+      nburnin: 600
+      nsteps: 1000
+      walkers_per_dim: 20
+  num_clusters: 2
+modalities:
+  CT:
+  - 0.76
+  - 0.81
+  FNA:
+  - 0.98
+  - 0.8
+  MRI:
+  - 0.63
+  - 0.81
+  PET:
+  - 0.86
+  - 0.79
+  diagnostic_consensus:
+  - 0.86
+  - 0.81
+  max_llh:
+  - 1.0
+  - 1.0
+  pCT:
+  - 0.86
+  - 0.81
+  pathology:
+  - 1.0
+  - 1.0
+model:
+  class: Unilateral
+  first_binom_prob: 0.3
+  kwargs:
+    base_symmetric: false
+    trans_symmetric: true
+    use_mixing: true
+  max_t: 10
+  t_stage_mapping:
+    0: all
+    1: all
+    2: all
+    3: all
+    4: all
+  t_stages:
+  - all
+num_patients:
+  C01: 212
+  C02: 158
+  C03: 45
+  C04: 99
+  C05: 61
+  C06: 46
+  C09: 452
+  C10: 169
+  total: 1242
+sampling:
+  burnin: 1000
+  kwargs:
+    check_interval: 50
+    max_steps: 20000
+    rel_acor_threshold: 0.075
+    trust_threshold: 30.0
+  nsteps: 20
+  thin_by: 10
+  walkers_per_dim: 20

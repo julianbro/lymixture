@@ -1,0 +1,13 @@
+md5: 835f0be6b4e53e9e4827285477c59a98
+frozen: true
+deps:
+- path: 2021-clb-oropharynx/data.csv
+  repo:
+    url: https://github.com/rmnldwg/lydata
+    rev: 2021-clb-oropharynx
+    rev_lock: b9ca38840293f76f8a888986f4c92336ddb1556e
+outs:
+- md5: d40c0a1ae967a6983d60a0a809cf3972
+  size: 92742
+  hash: md5
+  path: 2021-clb-oropharynx.csv

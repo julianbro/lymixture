@@ -1,0 +1,252 @@
+stages:
+  join:
+    cmd: >
+      lyscripts data join
+      --inputs
+      data/2021-usz-oropharynx.csv
+      data/2021-clb-oropharynx.csv
+      data/2023-clb-multisite.csv
+      data/2023-isb-multisite.csv
+      data/2023-hvh-oropharynx.csv
+      --output
+      data/joined.csv
+    deps:
+      - data/2021-usz-oropharynx.csv
+      - data/2021-clb-oropharynx.csv
+      - data/2023-clb-multisite.csv
+      - data/2023-isb-multisite.csv
+      - data/2023-hvh-oropharynx.csv
+    outs:
+      - data/joined.csv
+
+  filter_oropharynx_and_oral_cavity:
+    cmd: >
+      lyscripts data filter
+      data/joined.csv
+      data/filtered.csv
+      --include-subsites
+      C01 C02 C03 C04 C05 C06 C09 C10
+    deps:
+      - data/joined.csv
+    outs:
+      - data/filtered.csv
+
+  enhance:
+    cmd: >
+      lyscripts data enhance data/filtered.csv data/enhanced.csv
+      --params _variables.yml
+    deps:
+      - data/filtered.csv
+    params:
+      - _variables.yml:
+        - modalities
+    outs:
+      - data/enhanced.csv
+
+  write_num_patients:
+    cmd: >
+      python scripts/write_num_patients.py
+      --input data/enhanced.csv
+      --output _variables.yml
+    deps:
+      - scripts/write_num_patients.py
+    params:
+      - _variables.yml:
+          - icd_code_map
+
+  plot_prevalence_by_subsite:
+    cmd: >
+      python scripts/prevalence_by_subsite.py
+      --input data/enhanced.csv
+      --params _variables.yml
+      --output figures/prevalence_by_subsite.svg
+    deps:
+      - data/enhanced.csv
+      - scripts/prevalence_by_subsite.py
+    params:
+      - _variables.yml:
+        - barplot_kwargs
+        - icd_code_map
+    outs:
+      - figures/prevalence_by_subsite.svg:
+          cache: false
+
+  filter_oropharynx:
+    cmd: >
+      lyscripts data filter
+      data/enhanced.csv
+      data/oropharynx.csv
+      --include-subsites
+      C01 C09 C10
+    deps:
+      - data/enhanced.csv
+    outs:
+      - data/oropharynx.csv
+
+  sample_from_oropharynx:
+    cmd: >
+      lyscripts sample data/oropharynx.csv models/oropharynx.hdf5
+      --params _variables.yml
+      --modalities max_llh
+      --plots figures/sample_from_oropharynx
+      --pools 0
+      --seed 42
+    deps:
+      - data/oropharynx.csv
+    params:
+      - _variables.yml:
+          - graph
+          - model
+          - sampling
+    plots:
+      - figures/sample_from_oropharynx/acor_times.csv
+      - figures/sample_from_oropharynx/accept_rates.csv
+    outs:
+      - models/oropharynx.hdf5
+
+  filter_oral_cavity:
+    cmd: >
+      lyscripts data filter
+      data/enhanced.csv
+      data/oral_cavity.csv
+      --include-subsites
+      C02 C03 C04 C05 C06
+    deps:
+      - data/enhanced.csv
+    outs:
+      - data/oral_cavity.csv
+
+  sample_from_oral_cavity:
+    cmd: >
+      lyscripts sample data/oral_cavity.csv models/oral_cavity.hdf5
+      --params _variables.yml
+      --modalities max_llh
+      --plots figures/sample_from_oral_cavity
+      --pools 0
+      --seed 42
+    deps:
+      - data/oral_cavity.csv
+    params:
+      - _variables.yml:
+          - graph
+          - model
+          - sampling
+    plots:
+      - figures/sample_from_oral_cavity/acor_times.csv
+      - figures/sample_from_oral_cavity/accept_rates.csv
+    outs:
+      - models/oral_cavity.hdf5
+
+  mixture_model_em_sampling:
+    cmd: >
+      python scripts/mixture_model_sampling.py
+      --input data/enhanced.csv
+      --model models/mixture.hdf5
+      --figure figures/mixture_history.svg
+      --params _variables.yml
+      --seed 42
+    deps:
+      - scripts/mixture_model_sampling.py
+      - data/enhanced.csv
+    params:
+      - _variables.yml:
+          - mixture_model
+    outs:
+      - figures/mixture_history.svg:
+          cache: false
+      - models/mixture.hdf5
+
+  plot_component_assignments:
+    cmd: >
+      python scripts/plot_component_assignments.py
+      --model models/mixture.hdf5
+      --output figures/cluster_assignments.svg
+      --params _variables.yml
+    deps:
+      - models/mixture.hdf5
+      - scripts/plot_component_assignments.py
+    params:
+      - _variables.yml:
+          - num_patients
+    outs:
+      - figures/cluster_assignments.svg:
+          cache: false
+
+  plot_predicted_prevalence:
+      lnl:
+        - I
+        - II
+        - III
+        - IV
+      icd:
+        - C01
+        - C02
+        - C03
+        - C04
+        - C05
+        - C06
+        - C09
+        - C10
+    cmd: >
+      python scripts/prevalence_comparison.py
+      --mixture-model models/mixture.hdf5
+      --params _variables.yml
+      --lnl ${item.lnl}
+      --subsite ${item.icd}
+      --output figures/prevalence_${item.icd}_${item.lnl}.svg
+    deps:
+      - models/oropharynx.hdf5
+      - models/oral_cavity.hdf5
+      - models/mixture.hdf5
+      - scripts/prevalence_comparison.py
+      - data/enhanced.csv
+    params:
+      - _variables.yml:
+          - model
+          - icd_code_map
+    outs:
+      - figures/prevalence_${item.icd}_${item.lnl}.svg:
+          cache: false
+
+  prevalence_superplot:
+    cmd: >
+      python scripts/prevalence_superplot.py
+      --data data/enhanced.csv
+      --models models/
+      --output figures/prevalence_comparison.svg
+      --params _variables.yml
+      --lnls I II III
+      --subsites C01 C09 C05
+      --thin-indie 1
+      --thin-mixture 75
+    deps:
+      - scripts/prevalence_superplot.py
+      - data/enhanced.csv
+      - models/mixture.hdf5
+      - models/oropharynx.hdf5
+      - models/oral_cavity.hdf5
+    params:
+      - _variables.yml:
+          - model
+          - icd_code_map
+    outs:
+      - figures/prevalence_comparison.svg:
+          cache: false
+
+
+  render_pdf:
+    cmd: >
+      quarto render --to iccr-pdf
+    deps:
+      - content/manuscript.qmd
+      - _extensions
+      - static
+      - figures
+      - models
+    params:
+      - _variables.yml:
+          - model.first_binom_prob
+          - model.max_t
+          - num_patients
+    outs:
+      - _site/

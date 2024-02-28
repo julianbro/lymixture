@@ -1,0 +1,13 @@
+md5: a9d6b92d53c6e2a06946d845e1ed2a38
+frozen: true
+deps:
+- path: 2021-usz-oropharynx/data.csv
+  repo:
+    url: https://github.com/rmnldwg/lydata
+    rev: 2021-usz-oropharynx-v2
+    rev_lock: 7d76088bb261535213c06dae066c29db93bc9e8e
+outs:
+- md5: 1b949c74081ac4b6224186ebbb9c90df
+  size: 159482
+  hash: md5
+  path: 2021-usz-oropharynx.csv
